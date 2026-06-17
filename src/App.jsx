@@ -31,6 +31,19 @@ const PRICE_KEYS = new Set([
   "vlUlt",
   "ult",
   "last",
+  "closingPrice",
+  "close",
+  "settlementPrice",
+  "settlePrice",
+  "adjstmntPric",
+  "adjstdPric",
+  "adjstdQt",
+  "prvsAdjstmntPric",
+  "prvsDayAdjstmntPric",
+  "refPric",
+  "basePrc",
+  "theoPrc",
+  "theoreticalPrice",
 ]);
 
 function referencePrices() {
@@ -51,9 +64,14 @@ function parseNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function isLikelyBgiPrice(value) {
+  return value >= 200 && value <= 500;
+}
+
 function extractQuotePrice(payload) {
   const stack = [payload];
-  const candidates = [];
+  const namedCandidates = [];
+  const rangeCandidates = [];
 
   while (stack.length) {
     const current = stack.pop();
@@ -65,15 +83,16 @@ function extractQuotePrice(payload) {
     }
 
     Object.entries(current).forEach(([key, value]) => {
-      if (PRICE_KEYS.has(key)) {
-        const price = parseNumber(value);
-        if (price && price > 0) candidates.push(price);
+      const price = parseNumber(value);
+      if (price && isLikelyBgiPrice(price)) {
+        if (PRICE_KEYS.has(key)) namedCandidates.push(price);
+        rangeCandidates.push(price);
       }
       if (value && typeof value === "object") stack.push(value);
     });
   }
 
-  return candidates[0] ?? null;
+  return namedCandidates[0] ?? rangeCandidates[0] ?? null;
 }
 
 async function fetchB3Price(contract) {
@@ -108,7 +127,10 @@ async function fetchLivePrices(reference) {
       prices[result.value.vencimento] = result.value.price;
       liveContracts.add(result.value.vencimento);
     } else {
-      errors.push(`${contract.contrato}: ${result.reason?.message ?? "falha ao buscar cotação"}`);
+      const message = result.reason?.message ?? "falha ao buscar cotação";
+      if (!message.includes("preço não encontrado")) {
+        errors.push(`${contract.contrato}: ${message}`);
+      }
     }
   });
 
