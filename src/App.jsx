@@ -16,121 +16,64 @@ const CONTRACTS = [
   { vencimento: "V26", mes: "Outubro", contrato: "BGIV26" },
 ];
 
+const B3_CLOSING_PRICES = {
+  M26: 343.5,
+  N26: 334.5,
+  U26: 337.85,
+  V26: 345.8,
+};
+
 const LOTE = 330;
 const REFRESH_MS = 60_000;
 const PNL_GREEN = "#16a34a";
 const PNL_RED = "#dc2626";
 const B3_QUOTE_URL = "https://cotacao.b3.com.br/mds/api/v1/InstrumentQuotation";
-const PRICE_KEYS = new Set([
-  "curPrc",
-  "lastPx",
-  "lastPrice",
-  "regularMarketPrice",
-  "price",
-  "px",
-  "vlUlt",
-  "ult",
-  "last",
-  "closingPrice",
-  "close",
-  "settlementPrice",
-  "settlePrice",
-  "adjstmntPric",
-  "adjstdPric",
-  "adjstdQt",
-  "prvsAdjstmntPric",
-  "prvsDayAdjstmntPric",
-  "refPric",
-  "basePrc",
-  "theoPrc",
-  "theoreticalPrice",
-]);
 
-function referencePrices() {
-  return CONTRACTS.reduce((acc, contract) => {
-    const rows = POSITIONS.filter((pos) => pos.vencimento === contract.vencimento);
-    const totalContracts = rows.reduce((sum, pos) => sum + Math.abs(pos.contratos), 0);
-    const weightedPrice = rows.reduce((sum, pos) => sum + Math.abs(pos.contratos) * pos.precoMedio, 0);
-    acc[contract.vencimento] = totalContracts ? weightedPrice / totalContracts : null;
-    return acc;
-  }, {});
+function closingPrices() {
+  return { ...B3_CLOSING_PRICES };
 }
 
 function parseNumber(value) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value !== "string") return null;
-  const normalized = value.trim().replace(/\./g, "").replace(",", ".");
-  const parsed = Number(normalized);
+  const parsed = Number(value.trim().replace(/\./g, "").replace(",", "."));
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function isLikelyBgiPrice(value) {
-  return value >= 200 && value <= 500;
+function extractCurrentPrice(payload) {
+  const quote = payload?.Trad?.[0]?.scty?.SctyQtn;
+  const current = parseNumber(quote?.curPrc);
+  return current && current > 0 ? current : null;
 }
 
-function extractQuotePrice(payload) {
-  const stack = [payload];
-  const namedCandidates = [];
-  const rangeCandidates = [];
-
-  while (stack.length) {
-    const current = stack.pop();
-    if (!current || typeof current !== "object") continue;
-
-    if (Array.isArray(current)) {
-      current.forEach((item) => stack.push(item));
-      continue;
-    }
-
-    Object.entries(current).forEach(([key, value]) => {
-      const price = parseNumber(value);
-      if (price && isLikelyBgiPrice(price)) {
-        if (PRICE_KEYS.has(key)) namedCandidates.push(price);
-        rangeCandidates.push(price);
-      }
-      if (value && typeof value === "object") stack.push(value);
-    });
-  }
-
-  return namedCandidates[0] ?? rangeCandidates[0] ?? null;
-}
-
-async function fetchB3Price(contract) {
-  const response = await fetch(`${B3_QUOTE_URL}/${contract}`, {
-    headers: { accept: "application/json" },
-  });
-
+async function fetchB3CurrentPrice(contract) {
+  const response = await fetch(`${B3_QUOTE_URL}/${contract}`, { headers: { accept: "application/json" } });
   if (!response.ok) throw new Error(`B3 HTTP ${response.status}`);
-
   const payload = await response.json();
-  const price = extractQuotePrice(payload);
-  if (!price) throw new Error("preço não encontrado na B3");
-  return price;
+  return extractCurrentPrice(payload);
 }
 
-async function fetchLivePrices(reference) {
+async function fetchLivePrices(fallbackPrices) {
   const results = await Promise.allSettled(
     CONTRACTS.map(async ({ vencimento, contrato }) => ({
       vencimento,
-      contrato,
-      price: await fetchB3Price(contrato),
+      price: await fetchB3CurrentPrice(contrato),
     }))
   );
 
-  const prices = { ...reference };
+  const prices = { ...fallbackPrices };
   const liveContracts = new Set();
   const errors = [];
 
   results.forEach((result, index) => {
     const contract = CONTRACTS[index];
     if (result.status === "fulfilled") {
-      prices[result.value.vencimento] = result.value.price;
-      liveContracts.add(result.value.vencimento);
-    } else {
-      const message = result.reason?.message ?? "falha ao buscar cotação";
-      if (!message.includes("preço não encontrado")) {
-        errors.push(`${contract.contrato}: ${message}`);
+      if (result.value.price) {
+        prices[result.value.vencimento] = result.value.price;
+        liveContracts.add(result.value.vencimento);
       }
+    } else {
+      errors.push(`${contract.contrato}: ${result.reason?.message ?? "falha ao buscar cotação"}`);
     }
   });
 
@@ -161,8 +104,8 @@ function fmtVariation(value) {
 }
 
 export default function Dashboard() {
-  const reference = useMemo(referencePrices, []);
-  const [prices, setPrices] = useState(reference);
+  const fallbackPrices = useMemo(closingPrices, []);
+  const [prices, setPrices] = useState(fallbackPrices);
   const [liveContracts, setLiveContracts] = useState(new Set());
   const [errors, setErrors] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -171,7 +114,7 @@ export default function Dashboard() {
   const loadPrices = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await fetchLivePrices(reference);
+      const result = await fetchLivePrices(fallbackPrices);
       setPrices(result.prices);
       setLiveContracts(result.liveContracts);
       setErrors(result.errors);
@@ -182,7 +125,7 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, [reference]);
+  }, [fallbackPrices]);
 
   useEffect(() => {
     loadPrices();
@@ -201,17 +144,20 @@ export default function Dashboard() {
     const rows = positionsWithPnL.filter((pos) => pos.vencimento === contract.vencimento);
     const netContracts = rows.reduce((sum, pos) => sum + pos.contratos, 0);
     const totalPnL = rows.reduce((sum, pos) => sum + (pos.pnl ?? 0), 0);
-    return { ...contract, netContracts, totalPnL, precoAtual: prices[contract.vencimento], live: liveContracts.has(contract.vencimento) };
+    return {
+      ...contract,
+      netContracts,
+      totalPnL,
+      precoAtual: prices[contract.vencimento],
+      live: liveContracts.has(contract.vencimento),
+    };
   });
 
   const totalPnL = consolidated.reduce((sum, row) => sum + row.totalPnL, 0);
   const totalNetContracts = consolidated.reduce((sum, row) => sum + row.netContracts, 0);
   const liveCount = liveContracts.size;
 
-  const pnlStyle = (value) => ({
-    color: value >= 0 ? PNL_GREEN : PNL_RED,
-    fontWeight: 600,
-  });
+  const pnlStyle = (value) => ({ color: value >= 0 ? PNL_GREEN : PNL_RED, fontWeight: 600 });
 
   const tagStyle = (contracts) => ({
     display: "inline-block",
@@ -243,31 +189,23 @@ export default function Dashboard() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px", marginBottom: "16px" }}>
           <div>
             <div style={{ fontSize: "10px", letterSpacing: "2px", textTransform: "uppercase", color: "#9ca3af", marginBottom: "4px" }}>
-              B3 · Mercado Futuro · Cotações Online
+              B3 · Mercado Futuro · Fechamento e Online
             </div>
-            <div style={{ fontSize: "20px", fontWeight: 700, color: "#111827", letterSpacing: "-0.3px" }}>
-              Boi Gordo — Portfólio
-            </div>
+            <div style={{ fontSize: "20px", fontWeight: 700, color: "#111827", letterSpacing: "-0.3px" }}>Boi Gordo — Portfólio</div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-              <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: loading ? "#f59e0b" : liveCount ? "#22c55e" : "#9ca3af", animation: loading ? "pulse 1s infinite" : "none" }} />
-              <span style={{ fontSize: "12px", color: "#6b7280" }}>
-                {loading ? "Atualizando..." : `Atualizado ${lastUpdate.toLocaleTimeString("pt-BR")}`}
-              </span>
-              <button onClick={loadPrices} disabled={loading} style={{ background: "#fff", border: "1px solid #d1d5db", borderRadius: "6px", padding: "4px 10px", fontSize: "12px", color: "#374151", cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: loading ? 0.6 : 1 }}>
-                Atualizar
-              </button>
+              <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: loading ? "#f59e0b" : "#22c55e", animation: loading ? "pulse 1s infinite" : "none" }} />
+              <span style={{ fontSize: "12px", color: "#6b7280" }}>{loading ? "Atualizando..." : `Atualizado ${lastUpdate.toLocaleTimeString("pt-BR")}`}</span>
+              <button onClick={loadPrices} disabled={loading} style={{ background: "#fff", border: "1px solid #d1d5db", borderRadius: "6px", padding: "4px 10px", fontSize: "12px", color: "#374151", cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: loading ? 0.6 : 1 }}>Atualizar</button>
             </div>
           </div>
         </div>
 
-        <div style={{ background: liveCount ? "#f0fdf4" : "#eff6ff", border: `1px solid ${liveCount ? "#bbf7d0" : "#bfdbfe"}`, borderRadius: "8px", padding: "10px 14px", color: liveCount ? "#166534" : "#1d4ed8", fontSize: "12px", marginBottom: "16px" }}>
-          {liveCount === CONTRACTS.length
-            ? "Cotações atualizadas pela B3."
-            : liveCount > 0
-              ? `Cotações atualizadas pela B3 para ${liveCount} de ${CONTRACTS.length} vencimentos. Os demais usam preço médio ponderado como referência.`
-              : "Tentando atualizar pela B3. Enquanto a fonte online não responde, o painel usa preços médios ponderados como referência."}
+        <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "8px", padding: "10px 14px", color: "#166534", fontSize: "12px", marginBottom: "16px" }}>
+          {liveCount > 0
+            ? `Usando último negócio B3 para ${liveCount} vencimento(s) e fechamento/ajuste B3 para os demais.`
+            : "Usando preços de fechamento/ajuste B3. Nenhum preço foi calculado pela carteira."}
         </div>
 
         {errors.length > 0 && (
@@ -287,7 +225,7 @@ export default function Dashboard() {
                   <span style={tagStyle(row?.netContracts ?? 0)}>{(row?.netContracts ?? 0) < 0 ? `V ${Math.abs(row.netContracts)}` : `C ${row?.netContracts ?? 0}`}</span>
                 </div>
                 <div style={{ fontSize: "21px", fontWeight: 700, color: "#111827", letterSpacing: "-0.5px" }}>{fmtPrice(price).replace("R$ ", "")}</div>
-                <div style={{ fontSize: "11px", color: "#9ca3af", marginTop: "3px" }}>{mes} 2026 · {row?.live ? "B3 online" : "referência"}</div>
+                <div style={{ fontSize: "11px", color: "#9ca3af", marginTop: "3px" }}>{mes} 2026 · {row?.live ? "B3 online" : "fechamento B3"}</div>
               </div>
             );
           })}
@@ -329,7 +267,7 @@ export default function Dashboard() {
                     <td className="L"><span style={{ fontWeight: 600, color: "#111827" }}>{row.vencimento}</span><span style={{ color: "#9ca3af", fontSize: "11px", marginLeft: "5px" }}>{row.mes}</span></td>
                     <td><span style={tagStyle(row.netContracts)}>{row.netContracts < 0 ? `V ${Math.abs(row.netContracts)}` : `C ${row.netContracts}`}</span></td>
                     <td style={{ fontWeight: 500 }}>{fmtPrice(row.precoAtual)}</td>
-                    <td style={{ color: row.live ? "#15803d" : "#6b7280", fontSize: "12px" }}>{row.live ? "B3" : "Referência"}</td>
+                    <td style={{ color: row.live ? "#15803d" : "#6b7280", fontSize: "12px" }}>{row.live ? "B3 online" : "Fechamento B3"}</td>
                     <td style={pnlStyle(row.totalPnL)}>{fmtCurrency(row.totalPnL)}</td>
                   </tr>
                 ))}
@@ -350,7 +288,7 @@ export default function Dashboard() {
         </div>
 
         <div style={{ marginTop: "14px", fontSize: "11px", color: "#9ca3af", textAlign: "center" }}>
-          Fonte online: B3 InstrumentQuotation · fallback: preço médio ponderado das posições · 330 arrobas/contrato
+          Fonte: B3 InstrumentQuotation para último negócio; fechamento/ajuste B3 para contratos sem negócio no endpoint online · 330 arrobas/contrato
         </div>
       </div>
     </div>
