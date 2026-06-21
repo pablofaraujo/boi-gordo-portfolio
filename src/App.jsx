@@ -1,295 +1,225 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-
-const POSITIONS = [
-  { vencimento: "M26", mes: "Junho", contrato: "BGIM26", contratos: -6, precoMedio: 348.25 },
-  { vencimento: "N26", mes: "Julho", contrato: "BGIN26", contratos: -15, precoMedio: 346.04 },
-  { vencimento: "U26", mes: "Setembro", contrato: "BGIU26", contratos: 10, precoMedio: 347.26 },
-  { vencimento: "U26", mes: "Setembro", contrato: "BGIU26", contratos: -8, precoMedio: 346.95 },
-  { vencimento: "V26", mes: "Outubro", contrato: "BGIV26", contratos: -10, precoMedio: 353.30 },
-  { vencimento: "V26", mes: "Outubro", contrato: "BGIV26", contratos: -5, precoMedio: 355.00 },
-];
-
-const CONTRACTS = [
-  { vencimento: "M26", mes: "Junho", contrato: "BGIM26" },
-  { vencimento: "N26", mes: "Julho", contrato: "BGIN26" },
-  { vencimento: "U26", mes: "Setembro", contrato: "BGIU26" },
-  { vencimento: "V26", mes: "Outubro", contrato: "BGIV26" },
-];
-
-const B3_CLOSING_PRICES = {
-  M26: 343.5,
-  N26: 334.5,
-  U26: 337.85,
-  V26: 345.8,
-};
+import { useEffect, useMemo, useState } from "react";
 
 const LOTE = 330;
-const REFRESH_MS = 60_000;
-const PNL_GREEN = "#16a34a";
-const PNL_RED = "#dc2626";
-const B3_QUOTE_URL = "https://cotacao.b3.com.br/mds/api/v1/InstrumentQuotation";
+const STORAGE_KEY = "bgi-portfolio-positions-v1";
 
-function closingPrices() {
-  return { ...B3_CLOSING_PRICES };
+const BGI_INDICES = [
+  { vencimento: "M26", mes: "Junho/26", contrato: "BGIM26", fechamento: 343.5 },
+  { vencimento: "N26", mes: "Julho/26", contrato: "BGIN26", fechamento: 334.5 },
+  { vencimento: "U26", mes: "Setembro/26", contrato: "BGIU26", fechamento: 337.85 },
+  { vencimento: "V26", mes: "Outubro/26", contrato: "BGIV26", fechamento: 345.8 },
+];
+
+const DEFAULT_POSITIONS = [
+  { id: "m26-1", contrato: "BGIM26", mes: "Junho/26", lado: "Vendido", contratos: 6, entrada: 348.25, saida: "", corretora: 0, finpec: 0, status: "Aberta" },
+  { id: "n26-1", contrato: "BGIN26", mes: "Julho/26", lado: "Vendido", contratos: 15, entrada: 346.04, saida: "", corretora: 0, finpec: 0, status: "Aberta" },
+  { id: "u26-1", contrato: "BGIU26", mes: "Setembro/26", lado: "Comprado", contratos: 10, entrada: 347.26, saida: "", corretora: 0, finpec: 0, status: "Aberta" },
+  { id: "u26-2", contrato: "BGIU26", mes: "Setembro/26", lado: "Vendido", contratos: 8, entrada: 346.95, saida: "", corretora: 0, finpec: 0, status: "Aberta" },
+  { id: "v26-1", contrato: "BGIV26", mes: "Outubro/26", lado: "Vendido", contratos: 10, entrada: 353.3, saida: "", corretora: 0, finpec: 0, status: "Aberta" },
+  { id: "v26-2", contrato: "BGIV26", mes: "Outubro/26", lado: "Vendido", contratos: 5, entrada: 355, saida: "", corretora: 0, finpec: 0, status: "Aberta" },
+];
+
+const emptyDraft = {
+  contrato: "BGIM26",
+  mes: "Junho/26",
+  lado: "Vendido",
+  contratos: 1,
+  entrada: "",
+  saida: "",
+  corretora: 0,
+  finpec: 0,
+  status: "Aberta",
+};
+
+function toNumber(value) {
+  if (value === "" || value === null || value === undefined) return 0;
+  const parsed = Number(String(value).replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function parseNumber(value) {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value !== "string") return null;
-  const parsed = Number(value.trim().replace(/\./g, "").replace(",", "."));
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function extractCurrentPrice(payload) {
-  const quote = payload?.Trad?.[0]?.scty?.SctyQtn;
-  const current = parseNumber(quote?.curPrc);
-  return current && current > 0 ? current : null;
-}
-
-async function fetchB3CurrentPrice(contract) {
-  const response = await fetch(`${B3_QUOTE_URL}/${contract}`, { headers: { accept: "application/json" } });
-  if (!response.ok) throw new Error(`B3 HTTP ${response.status}`);
-  const payload = await response.json();
-  return extractCurrentPrice(payload);
-}
-
-async function fetchLivePrices(fallbackPrices) {
-  const results = await Promise.allSettled(
-    CONTRACTS.map(async ({ vencimento, contrato }) => ({
-      vencimento,
-      price: await fetchB3CurrentPrice(contrato),
-    }))
-  );
-
-  const prices = { ...fallbackPrices };
-  const liveContracts = new Set();
-  const errors = [];
-
-  results.forEach((result, index) => {
-    const contract = CONTRACTS[index];
-    if (result.status === "fulfilled") {
-      if (result.value.price) {
-        prices[result.value.vencimento] = result.value.price;
-        liveContracts.add(result.value.vencimento);
-      }
-    } else {
-      errors.push(`${contract.contrato}: ${result.reason?.message ?? "falha ao buscar cotação"}`);
-    }
-  });
-
-  return { prices, liveContracts, errors };
-}
-
-function pnlForPosition(pos, price) {
-  if (price === null || price === undefined) return null;
-  return pos.contratos < 0
-    ? (pos.precoMedio - price) * Math.abs(pos.contratos) * LOTE
-    : (price - pos.precoMedio) * pos.contratos * LOTE;
+function closingByContract() {
+  return BGI_INDICES.reduce((acc, item) => ({ ...acc, [item.contrato]: item.fechamento }), {});
 }
 
 function fmtCurrency(value) {
-  if (value === null || value === undefined) return "-";
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
 }
 
 function fmtPrice(value) {
-  if (value === null || value === undefined) return "-";
-  return `R$ ${value.toFixed(2).replace(".", ",")}`;
+  if (value === "" || value === null || value === undefined) return "-";
+  return Number(value).toFixed(2).replace(".", ",");
 }
 
-function fmtVariation(value) {
-  if (value === null || value === undefined) return "-";
-  const sign = value >= 0 ? "+" : "-";
-  return `${sign}R$ ${Math.abs(value).toFixed(2).replace(".", ",")}`;
+function resultForPosition(position, prices) {
+  const qty = toNumber(position.contratos);
+  const entry = toNumber(position.entrada);
+  const explicitExit = position.saida !== "" && position.saida !== null && position.saida !== undefined;
+  const exit = explicitExit ? toNumber(position.saida) : prices[position.contrato] || 0;
+  const gross = position.lado === "Vendido" ? (entry - exit) * qty * LOTE : (exit - entry) * qty * LOTE;
+  const costs = toNumber(position.corretora) + toNumber(position.finpec);
+  return { exit, gross, costs, net: gross - costs, source: explicitExit ? "Saída" : "Fechamento B3" };
+}
+
+function loadStoredPositions() {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return DEFAULT_POSITIONS;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length ? parsed : DEFAULT_POSITIONS;
+  } catch {
+    return DEFAULT_POSITIONS;
+  }
 }
 
 export default function Dashboard() {
-  const fallbackPrices = useMemo(closingPrices, []);
-  const [prices, setPrices] = useState(fallbackPrices);
-  const [liveContracts, setLiveContracts] = useState(new Set());
-  const [errors, setErrors] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [lastUpdate, setLastUpdate] = useState(new Date());
-
-  const loadPrices = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await fetchLivePrices(fallbackPrices);
-      setPrices(result.prices);
-      setLiveContracts(result.liveContracts);
-      setErrors(result.errors);
-      setLastUpdate(new Date());
-    } catch (error) {
-      setErrors([error.message]);
-      setLastUpdate(new Date());
-    } finally {
-      setLoading(false);
-    }
-  }, [fallbackPrices]);
+  const [positions, setPositions] = useState(loadStoredPositions);
+  const [draft, setDraft] = useState(emptyDraft);
+  const prices = useMemo(closingByContract, []);
 
   useEffect(() => {
-    loadPrices();
-    const timer = setInterval(loadPrices, REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [loadPrices]);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(positions));
+  }, [positions]);
 
-  const positionsWithPnL = POSITIONS.map((pos) => {
-    const currentPrice = prices[pos.vencimento];
-    const pnl = pnlForPosition(pos, currentPrice);
-    const variation = currentPrice !== null && currentPrice !== undefined ? currentPrice - pos.precoMedio : null;
-    return { ...pos, precoAtual: currentPrice, pnl, variation };
-  });
+  const enriched = positions.map((position) => ({ ...position, ...resultForPosition(position, prices) }));
+  const totalNet = enriched.reduce((sum, position) => sum + position.net, 0);
+  const totalGross = enriched.reduce((sum, position) => sum + position.gross, 0);
+  const totalCosts = enriched.reduce((sum, position) => sum + position.costs, 0);
+  const openCount = enriched.filter((position) => position.status === "Aberta").length;
 
-  const consolidated = CONTRACTS.map((contract) => {
-    const rows = positionsWithPnL.filter((pos) => pos.vencimento === contract.vencimento);
-    const netContracts = rows.reduce((sum, pos) => sum + pos.contratos, 0);
-    const totalPnL = rows.reduce((sum, pos) => sum + (pos.pnl ?? 0), 0);
+  const grouped = BGI_INDICES.map((index) => {
+    const rows = enriched.filter((position) => position.contrato === index.contrato);
     return {
-      ...contract,
-      netContracts,
-      totalPnL,
-      precoAtual: prices[contract.vencimento],
-      live: liveContracts.has(contract.vencimento),
+      ...index,
+      contratos: rows.reduce((sum, position) => sum + (position.lado === "Vendido" ? -toNumber(position.contratos) : toNumber(position.contratos)), 0),
+      resultado: rows.reduce((sum, position) => sum + position.net, 0),
+      custos: rows.reduce((sum, position) => sum + position.costs, 0),
     };
   });
 
-  const totalPnL = consolidated.reduce((sum, row) => sum + row.totalPnL, 0);
-  const totalNetContracts = consolidated.reduce((sum, row) => sum + row.netContracts, 0);
-  const liveCount = liveContracts.size;
+  function updateDraft(field, value) {
+    const selected = field === "contrato" ? BGI_INDICES.find((item) => item.contrato === value) : null;
+    setDraft((current) => ({ ...current, [field]: value, ...(selected ? { mes: selected.mes } : {}) }));
+  }
 
-  const pnlStyle = (value) => ({ color: value >= 0 ? PNL_GREEN : PNL_RED, fontWeight: 600 });
+  function addPosition() {
+    if (!draft.contrato || !toNumber(draft.contratos) || !toNumber(draft.entrada)) return;
+    setPositions((current) => [...current, { ...draft, id: `${Date.now()}` }]);
+    setDraft(emptyDraft);
+  }
 
-  const tagStyle = (contracts) => ({
-    display: "inline-block",
-    padding: "2px 8px",
-    borderRadius: "4px",
-    fontSize: "11px",
-    fontWeight: 600,
-    letterSpacing: "0.4px",
-    background: contracts < 0 ? "#fef2f2" : "#f0fdf4",
-    color: contracts < 0 ? "#b91c1c" : "#15803d",
-    border: `1px solid ${contracts < 0 ? "#fca5a5" : "#86efac"}`,
-  });
+  function updatePosition(id, field, value) {
+    setPositions((current) => current.map((position) => {
+      if (position.id !== id) return position;
+      const selected = field === "contrato" ? BGI_INDICES.find((item) => item.contrato === value) : null;
+      return { ...position, [field]: value, ...(selected ? { mes: selected.mes } : {}) };
+    }));
+  }
+
+  function deletePosition(id) {
+    setPositions((current) => current.filter((position) => position.id !== id));
+  }
+
+  function resetPositions() {
+    setPositions(DEFAULT_POSITIONS);
+  }
+
+  const pnlColor = (value) => (value >= 0 ? "#15803d" : "#b91c1c");
+  const inputStyle = { width: "100%", border: "1px solid #d1d5db", borderRadius: 6, padding: "7px 8px", font: "inherit", fontSize: 12, background: "#fff" };
+  const cellInputStyle = { ...inputStyle, padding: "5px 6px" };
 
   return (
-    <div style={{ fontFamily: "'Inter', system-ui, sans-serif", background: "#f9fafb", minHeight: "100vh", padding: "20px 16px" }}>
+    <div style={{ fontFamily: "Inter, system-ui, sans-serif", background: "#f8fafc", minHeight: "100vh", padding: 16, color: "#111827" }}>
       <style>{`
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.45} }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        table { border-collapse: collapse; width: 100%; }
-        th { font-size: 11px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: #6b7280; padding: 8px 12px; border-bottom: 1px solid #e5e7eb; text-align: right; white-space: nowrap; }
-        th.L { text-align: left; }
-        td { font-size: 13px; padding: 10px 12px; border-bottom: 1px solid #f3f4f6; color: #374151; text-align: right; }
-        td.L { text-align: left; }
-        tr:last-child td { border-bottom: none; }
-        tbody tr:hover td { background: #fafafa; }
+        * { box-sizing: border-box; }
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: right; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .3px; padding: 8px; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
+        td { text-align: right; font-size: 12px; padding: 7px 8px; border-bottom: 1px solid #eef2f7; vertical-align: middle; }
+        th.L, td.L { text-align: left; }
+        button { font: inherit; }
       `}</style>
-
-      <div style={{ maxWidth: "860px", margin: "0 auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px", marginBottom: "16px" }}>
+      <div style={{ maxWidth: 1120, margin: "0 auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
           <div>
-            <div style={{ fontSize: "10px", letterSpacing: "2px", textTransform: "uppercase", color: "#9ca3af", marginBottom: "4px" }}>
-              B3 · Mercado Futuro · Fechamento e Online
+            <div style={{ fontSize: 10, letterSpacing: 1.8, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>B3 · BGI · Posições gravadas</div>
+            <h1 style={{ fontSize: 22, margin: 0 }}>Boi Gordo — Portfólio</h1>
+          </div>
+          <button onClick={resetPositions} style={{ border: "1px solid #cbd5e1", background: "#fff", borderRadius: 6, padding: "7px 10px", cursor: "pointer" }}>Restaurar amostra</button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 16 }}>
+          {[
+            ["Resultado líquido", fmtCurrency(totalNet), pnlColor(totalNet)],
+            ["Resultado bruto", fmtCurrency(totalGross), pnlColor(totalGross)],
+            ["Custos", fmtCurrency(totalCosts), "#475569"],
+            ["Posições abertas", `${openCount}`, "#475569"],
+          ].map(([label, value, color]) => (
+            <div key={label} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14 }}>
+              <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", marginBottom: 6 }}>{label}</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
             </div>
-            <div style={{ fontSize: "20px", fontWeight: 700, color: "#111827", letterSpacing: "-0.3px" }}>Boi Gordo — Portfólio</div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-              <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: loading ? "#f59e0b" : "#22c55e", animation: loading ? "pulse 1s infinite" : "none" }} />
-              <span style={{ fontSize: "12px", color: "#6b7280" }}>{loading ? "Atualizando..." : `Atualizado ${lastUpdate.toLocaleTimeString("pt-BR")}`}</span>
-              <button onClick={loadPrices} disabled={loading} style={{ background: "#fff", border: "1px solid #d1d5db", borderRadius: "6px", padding: "4px 10px", fontSize: "12px", color: "#374151", cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: loading ? 0.6 : 1 }}>Atualizar</button>
-            </div>
-          </div>
+          ))}
         </div>
 
-        <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "8px", padding: "10px 14px", color: "#166534", fontSize: "12px", marginBottom: "16px" }}>
-          {liveCount > 0
-            ? `Usando último negócio B3 para ${liveCount} vencimento(s) e fechamento/ajuste B3 para os demais.`
-            : "Usando preços de fechamento/ajuste B3. Nenhum preço foi calculado pela carteira."}
-        </div>
-
-        {errors.length > 0 && (
-          <div style={{ background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: "8px", padding: "10px 14px", color: "#92400e", fontSize: "12px", marginBottom: "16px" }}>
-            Fonte B3 indisponível para: {errors.join(" | ")}
-          </div>
-        )}
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "10px", marginBottom: "20px" }}>
-          {CONTRACTS.map(({ vencimento, mes, contrato }) => {
-            const price = prices[vencimento];
-            const row = consolidated.find((item) => item.vencimento === vencimento);
-            return (
-              <div key={vencimento} style={{ background: "#fff", borderRadius: "8px", padding: "14px 16px", border: "1px solid #e5e7eb", boxShadow: "0 1px 2px rgba(0,0,0,.05)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                  <span style={{ fontSize: "11px", fontWeight: 600, color: "#374151" }}>{contrato}</span>
-                  <span style={tagStyle(row?.netContracts ?? 0)}>{(row?.netContracts ?? 0) < 0 ? `V ${Math.abs(row.netContracts)}` : `C ${row?.netContracts ?? 0}`}</span>
-                </div>
-                <div style={{ fontSize: "21px", fontWeight: 700, color: "#111827", letterSpacing: "-0.5px" }}>{fmtPrice(price).replace("R$ ", "")}</div>
-                <div style={{ fontSize: "11px", color: "#9ca3af", marginTop: "3px" }}>{mes} 2026 · {row?.live ? "B3 online" : "fechamento B3"}</div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div style={{ background: "#fff", borderRadius: "8px", border: "1px solid #e5e7eb", boxShadow: "0 1px 2px rgba(0,0,0,.05)", marginBottom: "16px", overflow: "hidden" }}>
-          <div style={{ padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}><span style={{ fontSize: "13px", fontWeight: 600, color: "#111827" }}>Posições Abertas</span></div>
+        <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14, marginBottom: 16 }}>
+          <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Amostra dos índices mensais BGI</h2>
           <div style={{ overflowX: "auto" }}>
             <table>
-              <thead><tr><th className="L">Vencimento</th><th>Direção</th><th>Contr.</th><th>Px Médio</th><th>Px Atual</th><th>Var/@</th><th>Resultado</th></tr></thead>
+              <thead><tr><th className="L">Contrato</th><th className="L">Mês</th><th>Fechamento/Ajuste</th><th>Posição líquida</th><th>Custos</th><th>Resultado</th></tr></thead>
               <tbody>
-                {positionsWithPnL.map((pos, index) => {
-                  const favorableVariation = pos.contratos < 0 ? -pos.variation : pos.variation;
-                  return (
-                    <tr key={`${pos.vencimento}-${index}`}>
-                      <td className="L"><span style={{ fontWeight: 600, color: "#111827" }}>{pos.vencimento}</span><span style={{ color: "#9ca3af", fontSize: "11px", marginLeft: "5px" }}>{pos.mes}</span></td>
-                      <td><span style={tagStyle(pos.contratos)}>{pos.contratos < 0 ? "Vendido" : "Comprado"}</span></td>
-                      <td>{Math.abs(pos.contratos)}</td>
-                      <td style={{ color: "#6b7280" }}>{fmtPrice(pos.precoMedio)}</td>
-                      <td style={{ fontWeight: 500 }}>{fmtPrice(pos.precoAtual)}</td>
-                      <td style={pnlStyle(favorableVariation)}>{fmtVariation(favorableVariation)}</td>
-                      <td style={pnlStyle(pos.pnl)}>{fmtCurrency(pos.pnl)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div style={{ background: "#fff", borderRadius: "8px", border: "1px solid #e5e7eb", boxShadow: "0 1px 2px rgba(0,0,0,.05)", marginBottom: "16px", overflow: "hidden" }}>
-          <div style={{ padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}><span style={{ fontSize: "13px", fontWeight: 600, color: "#111827" }}>Consolidado por Vencimento</span></div>
-          <div style={{ overflowX: "auto" }}>
-            <table>
-              <thead><tr><th className="L">Vencimento</th><th>Posição Líq.</th><th>Preço Atual</th><th>Fonte</th><th>Resultado</th></tr></thead>
-              <tbody>
-                {consolidated.map((row) => (
-                  <tr key={row.vencimento}>
-                    <td className="L"><span style={{ fontWeight: 600, color: "#111827" }}>{row.vencimento}</span><span style={{ color: "#9ca3af", fontSize: "11px", marginLeft: "5px" }}>{row.mes}</span></td>
-                    <td><span style={tagStyle(row.netContracts)}>{row.netContracts < 0 ? `V ${Math.abs(row.netContracts)}` : `C ${row.netContracts}`}</span></td>
-                    <td style={{ fontWeight: 500 }}>{fmtPrice(row.precoAtual)}</td>
-                    <td style={{ color: row.live ? "#15803d" : "#6b7280", fontSize: "12px" }}>{row.live ? "B3 online" : "Fechamento B3"}</td>
-                    <td style={pnlStyle(row.totalPnL)}>{fmtCurrency(row.totalPnL)}</td>
+                {grouped.map((row) => (
+                  <tr key={row.contrato}>
+                    <td className="L" style={{ fontWeight: 700 }}>{row.contrato}</td>
+                    <td className="L">{row.mes}</td>
+                    <td>R$ {fmtPrice(row.fechamento)}</td>
+                    <td>{row.contratos < 0 ? `V ${Math.abs(row.contratos)}` : `C ${row.contratos}`}</td>
+                    <td>{fmtCurrency(row.custos)}</td>
+                    <td style={{ color: pnlColor(row.resultado), fontWeight: 700 }}>{fmtCurrency(row.resultado)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
 
-        <div style={{ background: totalPnL >= 0 ? "#f0fdf4" : "#fef2f2", border: `1px solid ${totalPnL >= 0 ? "#86efac" : "#fca5a5"}`, borderRadius: "8px", padding: "18px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px", boxShadow: "0 1px 2px rgba(0,0,0,.05)" }}>
-          <div>
-            <div style={{ fontSize: "11px", fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>Resultado Total do Portfólio</div>
-            <div style={{ fontSize: "12px", color: "#9ca3af" }}>{totalNetContracts < 0 ? `Vendido ${Math.abs(totalNetContracts)}` : `Comprado ${totalNetContracts}`} contratos · {Math.abs(totalNetContracts) * LOTE} arrobas</div>
+        <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14, marginBottom: 16 }}>
+          <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Nova posição</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}>
+            <select value={draft.contrato} onChange={(event) => updateDraft("contrato", event.target.value)} style={inputStyle}>{BGI_INDICES.map((item) => <option key={item.contrato}>{item.contrato}</option>)}</select>
+            <select value={draft.lado} onChange={(event) => updateDraft("lado", event.target.value)} style={inputStyle}><option>Vendido</option><option>Comprado</option></select>
+            <input value={draft.contratos} onChange={(event) => updateDraft("contratos", event.target.value)} style={inputStyle} type="number" min="1" placeholder="Contratos" />
+            <input value={draft.entrada} onChange={(event) => updateDraft("entrada", event.target.value)} style={inputStyle} type="number" step="0.01" placeholder="Entrada" />
+            <input value={draft.saida} onChange={(event) => updateDraft("saida", event.target.value)} style={inputStyle} type="number" step="0.01" placeholder="Saída" />
+            <input value={draft.corretora} onChange={(event) => updateDraft("corretora", event.target.value)} style={inputStyle} type="number" step="0.01" placeholder="Corretora" />
+            <input value={draft.finpec} onChange={(event) => updateDraft("finpec", event.target.value)} style={inputStyle} type="number" step="0.01" placeholder="Finpec" />
+            <button onClick={addPosition} style={{ border: 0, background: "#2563eb", color: "#fff", borderRadius: 6, padding: "8px 10px", cursor: "pointer" }}>Gravar</button>
           </div>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: "28px", fontWeight: 700, letterSpacing: "-1px", color: totalPnL >= 0 ? PNL_GREEN : PNL_RED }}>{fmtCurrency(totalPnL)}</div>
-            <div style={{ fontSize: "12px", fontWeight: 600, marginTop: "2px", color: totalPnL >= 0 ? PNL_GREEN : PNL_RED }}>{totalPnL >= 0 ? "▲ Lucro" : "▼ Prejuízo"}</div>
-          </div>
-        </div>
+        </section>
 
-        <div style={{ marginTop: "14px", fontSize: "11px", color: "#9ca3af", textAlign: "center" }}>
-          Fonte: B3 InstrumentQuotation para último negócio; fechamento/ajuste B3 para contratos sem negócio no endpoint online · 330 arrobas/contrato
-        </div>
+        <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14 }}>
+          <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Posições gravadas</h2>
+          <div style={{ overflowX: "auto" }}>
+            <table>
+              <thead><tr><th className="L">Contrato</th><th className="L">Lado</th><th>Contr.</th><th>Entrada</th><th>Saída</th><th>Atual</th><th>Corretora</th><th>Finpec</th><th>Status</th><th>Resultado</th><th></th></tr></thead>
+              <tbody>
+                {enriched.map((position) => (
+                  <tr key={position.id}>
+                    <td className="L"><select value={position.contrato} onChange={(event) => updatePosition(position.id, "contrato", event.target.value)} style={cellInputStyle}>{BGI_INDICES.map((item) => <option key={item.contrato}>{item.contrato}</option>)}</select></td>
+                    <td className="L"><select value={position.lado} onChange={(event) => updatePosition(position.id, "lado", event.target.value)} style={cellInputStyle}><option>Vendido</option><option>Comprado</option></select></td>
+                    <td><input value={position.contratos} onChange={(event) => updatePosition(position.id, "contratos", event.target.value)} style={cellInputStyle} type="number" /></td>
+                    <td><input value={position.entrada} onChange={(event) => updatePosition(position.id, "entrada", event.target.value)} style={cellInputStyle} type="number" step="0.01" /></td>
+                    <td><input value={position.saida} onChange={(event) => updatePosition(position.id, "saida", event.target.value)} style={cellInputStyle} type="number" step="0.01" placeholder={fmtPrice(position.exit)} /></td>
+                    <td>{fmtPrice(position.exit)}<div style={{ color: "#94a3b8", fontSize: 10 }}>{position.source}</div></td>
+                    <td><input value={position.corretora} onChange={(event) => updatePosition(position.id, "corretora", event.target.value)} style={cellInputStyle} type="number" step="0.01" /></td>
+                    <td><input value={position.finpec} onChange={(event) => updatePosition(position.id, "finpec", event.target.value)} style={cellInputStyle} type="number" step="0.01" /></td>
+                    <td><select value={position.status} onChange={(event) => updatePosition(position.id, "status", event.target.value)} style={cellInputStyle}><option>Aberta</option><option>Fechada</option></select></td>
+                    <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtCurrency(position.net)}</td>
+                    <td><button onClick={() => deletePosition(position.id)} style={{ border: "1px solid #fecaca", background: "#fff", color: "#b91c1c", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>Excluir</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
     </div>
   );
