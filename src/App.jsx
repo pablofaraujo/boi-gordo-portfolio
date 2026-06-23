@@ -64,7 +64,18 @@ function resultForPosition(position, prices) {
 }
 
 function normalizePosition(position) {
-  return { dataEntrada: "", dataSaida: "", detalhes: "", ...position };
+  const hasExit = position.saida !== "" && position.saida !== null && position.saida !== undefined;
+  return { dataEntrada: "", dataSaida: "", detalhes: "", ...position, status: position.status || (hasExit ? "Fechada" : "Aberta") };
+}
+
+function isClosed(position) {
+  return position.status === "Fechada" || (position.saida !== "" && position.saida !== null && position.saida !== undefined);
+}
+
+function outcomeLabel(value) {
+  if (value > 0) return "Ganho";
+  if (value < 0) return "Perda";
+  return "Zero";
 }
 
 function loadStoredPositions() {
@@ -91,10 +102,15 @@ export default function Dashboard() {
   const totalNet = enriched.reduce((sum, position) => sum + position.net, 0);
   const totalGross = enriched.reduce((sum, position) => sum + position.gross, 0);
   const totalCosts = enriched.reduce((sum, position) => sum + position.costs, 0);
-  const openCount = enriched.filter((position) => position.status === "Aberta").length;
+  const openPositions = enriched.filter((position) => !isClosed(position));
+  const closedPositions = enriched.filter(isClosed);
+  const openCount = openPositions.length;
+  const closedNet = closedPositions.reduce((sum, position) => sum + position.net, 0);
+  const wonCount = closedPositions.filter((position) => position.net > 0).length;
+  const lostCount = closedPositions.filter((position) => position.net < 0).length;
 
   const grouped = BGI_INDICES.map((index) => {
-    const rows = enriched.filter((position) => position.contrato === index.contrato);
+    const rows = openPositions.filter((position) => position.contrato === index.contrato);
     return {
       ...index,
       contratos: rows.reduce((sum, position) => sum + (position.lado === "Vendido" ? -toNumber(position.contratos) : toNumber(position.contratos)), 0),
@@ -102,6 +118,21 @@ export default function Dashboard() {
       custos: rows.reduce((sum, position) => sum + position.costs, 0),
     };
   });
+
+  const exitConsolidated = BGI_INDICES.map((index) => {
+    const rows = closedPositions.filter((position) => position.contrato === index.contrato);
+    const contracts = rows.reduce((sum, position) => sum + toNumber(position.contratos), 0);
+    const weightedExit = rows.reduce((sum, position) => sum + toNumber(position.saida) * toNumber(position.contratos), 0);
+    return {
+      ...index,
+      count: rows.length,
+      contracts,
+      avgExit: contracts ? weightedExit / contracts : 0,
+      net: rows.reduce((sum, position) => sum + position.net, 0),
+      wins: rows.filter((position) => position.net > 0).length,
+      losses: rows.filter((position) => position.net < 0).length,
+    };
+  }).filter((row) => row.count);
 
   function updateDraft(field, value) {
     const selected = field === "contrato" ? BGI_INDICES.find((item) => item.contrato === value) : null;
@@ -118,7 +149,10 @@ export default function Dashboard() {
     setPositions((current) => current.map((position) => {
       if (position.id !== id) return position;
       const selected = field === "contrato" ? BGI_INDICES.find((item) => item.contrato === value) : null;
-      return { ...normalizePosition(position), [field]: value, ...(selected ? { mes: selected.mes } : {}) };
+      const updated = { ...normalizePosition(position), [field]: value, ...(selected ? { mes: selected.mes } : {}) };
+      if (field === "saida" && value !== "") updated.status = "Fechada";
+      if (field === "status" && value === "Aberta") updated.dataSaida = "";
+      return updated;
     }));
   }
 
@@ -160,6 +194,8 @@ export default function Dashboard() {
             ["Resultado bruto", fmtCurrency(totalGross), pnlColor(totalGross)],
             ["Custos", fmtCurrency(totalCosts), "#475569"],
             ["Posições abertas", `${openCount}`, "#475569"],
+            ["Histórico fechado", fmtCurrency(closedNet), pnlColor(closedNet)],
+            ["Ganhas / Perdidas", `${wonCount} / ${lostCount}`, "#475569"],
           ].map(([label, value, color]) => (
             <div key={label} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14 }}>
               <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", marginBottom: 6 }}>{label}</div>
@@ -184,6 +220,31 @@ export default function Dashboard() {
                     <td style={{ color: pnlColor(row.resultado), fontWeight: 700 }}>{fmtCurrency(row.resultado)}</td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14, marginBottom: 16 }}>
+          <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Posição consolidada de saída</h2>
+          <div style={{ overflowX: "auto" }}>
+            <table>
+              <thead><tr><th className="L">Contrato</th><th className="L">Mês</th><th>Saídas</th><th>Contratos</th><th>Saída média</th><th>Ganhas</th><th>Perdidas</th><th>Resultado fechado</th></tr></thead>
+              <tbody>
+                {exitConsolidated.length ? exitConsolidated.map((row) => (
+                  <tr key={row.contrato}>
+                    <td className="L" style={{ fontWeight: 700 }}>{row.contrato}</td>
+                    <td className="L">{row.mes}</td>
+                    <td>{row.count}</td>
+                    <td>{row.contracts}</td>
+                    <td>R$ {fmtPrice(row.avgExit)}</td>
+                    <td>{row.wins}</td>
+                    <td>{row.losses}</td>
+                    <td style={{ color: pnlColor(row.net), fontWeight: 700 }}>{fmtCurrency(row.net)}</td>
+                  </tr>
+                )) : (
+                  <tr><td className="L" colSpan="8" style={{ color: "#64748b" }}>Nenhuma saída fechada ainda.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -231,6 +292,32 @@ export default function Dashboard() {
                     <td><button onClick={() => deletePosition(position.id)} style={{ border: "1px solid #fecaca", background: "#fff", color: "#b91c1c", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>Excluir</button></td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14, marginTop: 16 }}>
+          <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Histórico de posições encerradas</h2>
+          <div style={{ overflowX: "auto" }}>
+            <table>
+              <thead><tr><th className="L">Contrato</th><th className="L">Lado</th><th>Contr.</th><th>Entrada</th><th>Saída</th><th>Data saída</th><th>Resultado</th><th>Ganho/Perda</th><th className="L">Detalhes</th></tr></thead>
+              <tbody>
+                {closedPositions.length ? closedPositions.map((position) => (
+                  <tr key={`history-${position.id}`}>
+                    <td className="L" style={{ fontWeight: 700 }}>{position.contrato}</td>
+                    <td className="L">{position.lado}</td>
+                    <td>{position.contratos}</td>
+                    <td>R$ {fmtPrice(position.entrada)}</td>
+                    <td>R$ {fmtPrice(position.saida)}</td>
+                    <td>{position.dataSaida || "-"}</td>
+                    <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtCurrency(position.net)}</td>
+                    <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{outcomeLabel(position.net)}</td>
+                    <td className="L">{position.detalhes || "-"}</td>
+                  </tr>
+                )) : (
+                  <tr><td className="L" colSpan="9" style={{ color: "#64748b" }}>Preencha a saída ou marque a posição como fechada para aparecer no histórico.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
