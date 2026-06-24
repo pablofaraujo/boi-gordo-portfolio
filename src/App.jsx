@@ -159,16 +159,6 @@ export default function Dashboard() {
   const closedBrokerCosts = closedPositions.reduce((sum, position) => sum + position.brokerCost, 0);
   const closedFinpecCosts = closedPositions.reduce((sum, position) => sum + position.finpecCost, 0);
 
-  const grouped = BGI_INDICES.map((index) => {
-    const rows = openPositions.filter((position) => position.contrato === index.contrato);
-    return {
-      ...index,
-      contratos: rows.reduce((sum, position) => sum + (position.lado === "Vendido" ? -toNumber(position.contratos) : toNumber(position.contratos)), 0),
-      resultado: rows.reduce((sum, position) => sum + position.net, 0),
-      custos: rows.reduce((sum, position) => sum + position.costs, 0),
-    };
-  });
-
   function updateDraft(field, value) {
     const selected = field === "contrato" ? BGI_INDICES.find((item) => item.contrato === value) : null;
     setDraft((current) => ({ ...current, [field]: value, ...(selected ? { mes: selected.mes } : {}) }));
@@ -251,18 +241,22 @@ export default function Dashboard() {
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Posição em aberto</h2>
           <div style={{ overflowX: "auto" }}>
             <table>
-              <thead><tr><th className="L">Contrato</th><th className="L">Mês</th><th>Fechamento/Ajuste</th><th>Posição líquida</th><th>Custos</th><th>Resultado</th></tr></thead>
+              <thead><tr><th className="L">Contrato</th><th className="L">Lado</th><th>Contr.</th><th>Entrada</th><th>Atual</th><th>Custos</th><th>Resultado</th><th className="L">Detalhes</th></tr></thead>
               <tbody>
-                {grouped.map((row) => (
-                  <tr key={row.contrato}>
-                    <td className="L" style={{ fontWeight: 700 }}>{row.contrato}</td>
-                    <td className="L">{row.mes}</td>
-                    <td>R$ {fmtPrice(row.fechamento)}</td>
-                    <td>{row.contratos < 0 ? `V ${Math.abs(row.contratos)}` : `C ${row.contratos}`}</td>
-                    <td>{fmtCurrency(row.custos)}</td>
-                    <td style={{ color: pnlColor(row.resultado), fontWeight: 700 }}>{fmtCurrency(row.resultado)}</td>
+                {openPositions.length ? openPositions.map((position) => (
+                  <tr key={`open-${position.id}`}>
+                    <td className="L" style={{ fontWeight: 700 }}>{position.contrato}</td>
+                    <td className="L">{position.lado}</td>
+                    <td>{position.contratos}</td>
+                    <td>R$ {fmtPrice(position.entrada)}</td>
+                    <td>R$ {fmtPrice(position.exit)}</td>
+                    <td>{fmtCurrency(position.costs)}</td>
+                    <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtCurrency(position.net)}</td>
+                    <td className="L">{position.detalhes || "-"}</td>
                   </tr>
-                ))}
+                )) : (
+                  <tr><td className="L" colSpan="8" style={{ color: "#64748b" }}>Nenhuma posição em aberto.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
