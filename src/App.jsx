@@ -103,6 +103,7 @@ export default function Dashboard() {
   const enriched = positions.map((position) => ({ ...normalizePosition(position), ...resultForPosition(position, prices) }));
   const openPositions = enriched.filter((position) => !isClosed(position));
   const closedPositions = enriched.filter(isClosed);
+  const openCount = openPositions.length;
   const openNet = openPositions.reduce((sum, position) => sum + position.net, 0);
   const totalNet = closedPositions.reduce((sum, position) => sum + position.net, 0);
   const closedNet = closedPositions.reduce((sum, position) => sum + position.net, 0);
@@ -176,7 +177,8 @@ export default function Dashboard() {
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 16 }}>
           {[
-            ["Posição em aberto", fmtCurrency(openNet), pnlColor(openNet)],
+            ["Resultado parcial em aberto", fmtCurrency(openNet), pnlColor(openNet)],
+            ["Posição em aberto", `${openCount}`, "#475569"],
             ["Resultado líquido", fmtCurrency(totalNet), pnlColor(totalNet)],
           ].map(([label, value, color]) => (
             <div key={label} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14 }}>
