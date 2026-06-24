@@ -11,12 +11,12 @@ const BGI_INDICES = [
 ];
 
 const DEFAULT_POSITIONS = [
-  { id: "m26-1", contrato: "BGIM26", mes: "Junho/26", lado: "Vendido", contratos: 6, entrada: 348.25, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", detalhes: "" },
-  { id: "n26-1", contrato: "BGIN26", mes: "Julho/26", lado: "Vendido", contratos: 15, entrada: 346.04, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", detalhes: "" },
-  { id: "u26-1", contrato: "BGIU26", mes: "Setembro/26", lado: "Comprado", contratos: 10, entrada: 347.26, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", detalhes: "" },
-  { id: "u26-2", contrato: "BGIU26", mes: "Setembro/26", lado: "Vendido", contratos: 8, entrada: 346.95, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", detalhes: "" },
-  { id: "v26-1", contrato: "BGIV26", mes: "Outubro/26", lado: "Vendido", contratos: 10, entrada: 353.3, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", detalhes: "" },
-  { id: "v26-2", contrato: "BGIV26", mes: "Outubro/26", lado: "Vendido", contratos: 5, entrada: 355, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", detalhes: "" },
+  { id: "m26-1", contrato: "BGIM26", mes: "Junho/26", lado: "Vendido", contratos: 6, entrada: 348.25, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
+  { id: "n26-1", contrato: "BGIN26", mes: "Julho/26", lado: "Vendido", contratos: 15, entrada: 346.04, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
+  { id: "u26-1", contrato: "BGIU26", mes: "Setembro/26", lado: "Comprado", contratos: 10, entrada: 347.26, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
+  { id: "u26-2", contrato: "BGIU26", mes: "Setembro/26", lado: "Vendido", contratos: 8, entrada: 346.95, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
+  { id: "v26-1", contrato: "BGIV26", mes: "Outubro/26", lado: "Vendido", contratos: 10, entrada: 353.3, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
+  { id: "v26-2", contrato: "BGIV26", mes: "Outubro/26", lado: "Vendido", contratos: 5, entrada: 355, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
 ];
 
 const emptyDraft = {
@@ -31,6 +31,7 @@ const emptyDraft = {
   corretora: 0,
   finpec: 0,
   status: "Aberta",
+  negocio: "",
   detalhes: "",
 };
 
@@ -71,7 +72,7 @@ function resultForPosition(position, prices) {
 
 function normalizePosition(position) {
   const hasExit = position.saida !== "" && position.saida !== null && position.saida !== undefined;
-  return { dataEntrada: "", dataSaida: "", detalhes: "", ...position, status: position.status || (hasExit ? "Fechada" : "Aberta") };
+  return { dataEntrada: "", dataSaida: "", negocio: "", detalhes: "", ...position, status: position.status || (hasExit ? "Fechada" : "Aberta") };
 }
 
 function isClosed(position) {
@@ -120,6 +121,7 @@ function parsePortfolioImport(text) {
       corretora: 0,
       finpec: 0,
       status: "Aberta",
+      negocio: "",
       detalhes: "Importado",
     });
   });
@@ -241,7 +243,7 @@ export default function Dashboard() {
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Posição em aberto</h2>
           <div style={{ overflowX: "auto" }}>
             <table>
-              <thead><tr><th className="L">Contrato</th><th className="L">Lado</th><th>Contr.</th><th>Entrada</th><th>Atual</th><th>Custos</th><th>Resultado</th><th className="L">Detalhes</th></tr></thead>
+              <thead><tr><th className="L">Contrato</th><th className="L">Lado</th><th>Contr.</th><th>Entrada</th><th>Atual</th><th>Custos</th><th>Resultado</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th></tr></thead>
               <tbody>
                 {openPositions.length ? openPositions.map((position) => (
                   <tr key={`open-${position.id}`}>
@@ -252,10 +254,11 @@ export default function Dashboard() {
                     <td>R$ {fmtPrice(position.exit)}</td>
                     <td>{fmtCurrency(position.costs)}</td>
                     <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtCurrency(position.net)}</td>
+                    <td className="L">{position.negocio || "-"}</td>
                     <td className="L">{position.detalhes || "-"}</td>
                   </tr>
                 )) : (
-                  <tr><td className="L" colSpan="8" style={{ color: "#64748b" }}>Nenhuma posição em aberto.</td></tr>
+                  <tr><td className="L" colSpan="9" style={{ color: "#64748b" }}>Nenhuma posição em aberto.</td></tr>
                 )}
               </tbody>
             </table>
@@ -289,6 +292,7 @@ export default function Dashboard() {
             <input value={draft.corretora} onChange={(event) => updateDraft("corretora", event.target.value)} style={inputStyle} type="number" step="0.01" placeholder="Corretora/arroba" />
             <input value={draft.finpec} onChange={(event) => updateDraft("finpec", event.target.value)} style={inputStyle} type="number" step="0.01" placeholder="Finpec/arroba" />
             <select value={draft.status} onChange={(event) => updateDraft("status", event.target.value)} style={inputStyle}><option>Aberta</option><option>Fechada</option></select>
+            <textarea value={draft.negocio} onChange={(event) => updateDraft("negocio", event.target.value)} style={notesStyle} placeholder="Negócio / rateio. Ex.: CF-26-009: 3 contratos; CF-26-010: 2 contratos" />
             <textarea value={draft.detalhes} onChange={(event) => updateDraft("detalhes", event.target.value)} style={{ ...notesStyle, gridColumn: "1 / -2" }} placeholder="Detalhes da operação" />
             <button onClick={addPosition} style={{ border: 0, background: "#2563eb", color: "#fff", borderRadius: 6, padding: "8px 10px", cursor: "pointer" }}>Gravar</button>
           </div>
@@ -298,7 +302,7 @@ export default function Dashboard() {
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Posições gravadas</h2>
           <div style={{ overflowX: "auto" }}>
             <table>
-              <thead><tr><th className="L">Contrato</th><th className="L">Lado</th><th>Contr.</th><th>Data entrada</th><th>Entrada</th><th>Data saída</th><th>Saída</th><th>Atual</th><th>Corretora/@</th><th>Finpec/@</th><th>Status</th><th className="L">Detalhes</th><th>Resultado</th><th></th></tr></thead>
+              <thead><tr><th className="L">Contrato</th><th className="L">Lado</th><th>Contr.</th><th>Data entrada</th><th>Entrada</th><th>Data saída</th><th>Saída</th><th>Atual</th><th>Corretora/@</th><th>Finpec/@</th><th>Status</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th><th>Resultado</th><th></th></tr></thead>
               <tbody>
                 {enriched.map((position) => (
                   <tr key={position.id}>
@@ -313,6 +317,7 @@ export default function Dashboard() {
                     <td><input value={position.corretora} onChange={(event) => updatePosition(position.id, "corretora", event.target.value)} style={cellInputStyle} type="number" step="0.01" /></td>
                     <td><input value={position.finpec} onChange={(event) => updatePosition(position.id, "finpec", event.target.value)} style={cellInputStyle} type="number" step="0.01" /></td>
                     <td><select value={position.status} onChange={(event) => updatePosition(position.id, "status", event.target.value)} style={cellInputStyle}><option>Aberta</option><option>Fechada</option></select></td>
+                    <td className="L" style={{ minWidth: 180 }}><textarea value={position.negocio} onChange={(event) => updatePosition(position.id, "negocio", event.target.value)} style={notesStyle} placeholder="CF-26-009: 3 contratos" /></td>
                     <td className="L" style={{ minWidth: 180 }}><textarea value={position.detalhes} onChange={(event) => updatePosition(position.id, "detalhes", event.target.value)} style={notesStyle} placeholder="Detalhes" /></td>
                     <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtCurrency(position.net)}</td>
                     <td><button onClick={() => deletePosition(position.id)} style={{ border: "1px solid #fecaca", background: "#fff", color: "#b91c1c", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>Excluir</button></td>
@@ -339,7 +344,7 @@ export default function Dashboard() {
           </div>
           <div style={{ overflowX: "auto" }}>
             <table>
-              <thead><tr><th className="L">Contrato</th><th className="L">Lado</th><th>Contr.</th><th>Entrada</th><th>Saída</th><th>Data saída</th><th>Corretora</th><th>Finpec</th><th>Resultado</th><th>Ganho/Perda</th><th className="L">Detalhes</th></tr></thead>
+              <thead><tr><th className="L">Contrato</th><th className="L">Lado</th><th>Contr.</th><th>Entrada</th><th>Saída</th><th>Data saída</th><th>Corretora</th><th>Finpec</th><th>Resultado</th><th>Ganho/Perda</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th></tr></thead>
               <tbody>
                 {closedPositions.length ? closedPositions.map((position) => (
                   <tr key={`history-${position.id}`}>
@@ -353,10 +358,11 @@ export default function Dashboard() {
                     <td>{fmtCurrency(position.finpecCost)}</td>
                     <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtCurrency(position.net)}</td>
                     <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{outcomeLabel(position.net)}</td>
+                    <td className="L">{position.negocio || "-"}</td>
                     <td className="L">{position.detalhes || "-"}</td>
                   </tr>
                 )) : (
-                  <tr><td className="L" colSpan="11" style={{ color: "#64748b" }}>Preencha a saída ou marque a posição como fechada para aparecer no histórico.</td></tr>
+                  <tr><td className="L" colSpan="12" style={{ color: "#64748b" }}>Preencha a saída ou marque a posição como fechada para aparecer no histórico.</td></tr>
                 )}
               </tbody>
             </table>
