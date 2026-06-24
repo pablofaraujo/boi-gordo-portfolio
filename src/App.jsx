@@ -119,21 +119,6 @@ export default function Dashboard() {
     };
   });
 
-  const exitConsolidated = BGI_INDICES.map((index) => {
-    const rows = closedPositions.filter((position) => position.contrato === index.contrato);
-    const contracts = rows.reduce((sum, position) => sum + toNumber(position.contratos), 0);
-    const weightedExit = rows.reduce((sum, position) => sum + toNumber(position.saida) * toNumber(position.contratos), 0);
-    return {
-      ...index,
-      count: rows.length,
-      contracts,
-      avgExit: contracts ? weightedExit / contracts : 0,
-      net: rows.reduce((sum, position) => sum + position.net, 0),
-      wins: rows.filter((position) => position.net > 0).length,
-      losses: rows.filter((position) => position.net < 0).length,
-    };
-  }).filter((row) => row.count);
-
   function updateDraft(field, value) {
     const selected = field === "contrato" ? BGI_INDICES.find((item) => item.contrato === value) : null;
     setDraft((current) => ({ ...current, [field]: value, ...(selected ? { mes: selected.mes } : {}) }));
@@ -217,31 +202,6 @@ export default function Dashboard() {
                     <td style={{ color: pnlColor(row.resultado), fontWeight: 700 }}>{fmtCurrency(row.resultado)}</td>
                   </tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14, marginBottom: 16 }}>
-          <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Posição consolidada de saída</h2>
-          <div style={{ overflowX: "auto" }}>
-            <table>
-              <thead><tr><th className="L">Contrato</th><th className="L">Mês</th><th>Saídas</th><th>Contratos</th><th>Saída média</th><th>Ganhas</th><th>Perdidas</th><th>Resultado fechado</th></tr></thead>
-              <tbody>
-                {exitConsolidated.length ? exitConsolidated.map((row) => (
-                  <tr key={row.contrato}>
-                    <td className="L" style={{ fontWeight: 700 }}>{row.contrato}</td>
-                    <td className="L">{row.mes}</td>
-                    <td>{row.count}</td>
-                    <td>{row.contracts}</td>
-                    <td>R$ {fmtPrice(row.avgExit)}</td>
-                    <td>{row.wins}</td>
-                    <td>{row.losses}</td>
-                    <td style={{ color: pnlColor(row.net), fontWeight: 700 }}>{fmtCurrency(row.net)}</td>
-                  </tr>
-                )) : (
-                  <tr><td className="L" colSpan="8" style={{ color: "#64748b" }}>Nenhuma saída fechada ainda.</td></tr>
-                )}
               </tbody>
             </table>
           </div>
