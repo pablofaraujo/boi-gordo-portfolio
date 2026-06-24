@@ -101,12 +101,12 @@ export default function Dashboard() {
   }, [positions]);
 
   const enriched = positions.map((position) => ({ ...normalizePosition(position), ...resultForPosition(position, prices) }));
-  const totalNet = enriched.reduce((sum, position) => sum + position.net, 0);
-  const totalGross = enriched.reduce((sum, position) => sum + position.gross, 0);
-  const totalCosts = enriched.reduce((sum, position) => sum + position.costs, 0);
   const openPositions = enriched.filter((position) => !isClosed(position));
   const closedPositions = enriched.filter(isClosed);
   const openCount = openPositions.length;
+  const totalNet = closedPositions.reduce((sum, position) => sum + position.net, 0);
+  const totalGross = closedPositions.reduce((sum, position) => sum + position.gross, 0);
+  const totalCosts = closedPositions.reduce((sum, position) => sum + position.costs, 0);
   const closedNet = closedPositions.reduce((sum, position) => sum + position.net, 0);
   const closedBrokerCosts = closedPositions.reduce((sum, position) => sum + position.brokerCost, 0);
   const closedFinpecCosts = closedPositions.reduce((sum, position) => sum + position.finpecCost, 0);
@@ -198,7 +198,7 @@ export default function Dashboard() {
             ["Resultado líquido", fmtCurrency(totalNet), pnlColor(totalNet)],
             ["Resultado bruto", fmtCurrency(totalGross), pnlColor(totalGross)],
             ["Custos", fmtCurrency(totalCosts), "#475569"],
-            ["Posições abertas", `${openCount}`, "#475569"],
+            ["Posição em aberto", `${openCount}`, "#475569"],
             ["Histórico fechado", fmtCurrency(closedNet), pnlColor(closedNet)],
             ["Ganhas / Perdidas", `${wonCount} / ${lostCount}`, "#475569"],
           ].map(([label, value, color]) => (
@@ -210,7 +210,7 @@ export default function Dashboard() {
         </div>
 
         <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14, marginBottom: 16 }}>
-          <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Amostra dos índices mensais BGI</h2>
+          <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Posição em aberto</h2>
           <div style={{ overflowX: "auto" }}>
             <table>
               <thead><tr><th className="L">Contrato</th><th className="L">Mês</th><th>Fechamento/Ajuste</th><th>Posição líquida</th><th>Custos</th><th>Resultado</th></tr></thead>
