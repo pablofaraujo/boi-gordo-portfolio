@@ -59,7 +59,7 @@ function resultForPosition(position, prices) {
   const explicitExit = position.saida !== "" && position.saida !== null && position.saida !== undefined;
   const exit = explicitExit ? toNumber(position.saida) : prices[position.contrato] || 0;
   const gross = position.lado === "Vendido" ? (entry - exit) * qty * LOTE : (exit - entry) * qty * LOTE;
-  const costs = toNumber(position.corretora) + toNumber(position.finpec);
+  const costs = (toNumber(position.corretora) + toNumber(position.finpec)) * qty * LOTE;
   return { exit, gross, costs, net: gross - costs, source: explicitExit ? "Saída" : "Fechamento B3" };
 }
 
@@ -260,8 +260,8 @@ export default function Dashboard() {
             <input value={draft.entrada} onChange={(event) => updateDraft("entrada", event.target.value)} style={inputStyle} type="number" step="0.01" placeholder="Entrada" />
             <input value={draft.dataSaida} onChange={(event) => updateDraft("dataSaida", event.target.value)} style={inputStyle} type="date" title="Data da saída" />
             <input value={draft.saida} onChange={(event) => updateDraft("saida", event.target.value)} style={inputStyle} type="number" step="0.01" placeholder="Saída" />
-            <input value={draft.corretora} onChange={(event) => updateDraft("corretora", event.target.value)} style={inputStyle} type="number" step="0.01" placeholder="Corretora" />
-            <input value={draft.finpec} onChange={(event) => updateDraft("finpec", event.target.value)} style={inputStyle} type="number" step="0.01" placeholder="Finpec" />
+            <input value={draft.corretora} onChange={(event) => updateDraft("corretora", event.target.value)} style={inputStyle} type="number" step="0.01" placeholder="Corretora/arroba" />
+            <input value={draft.finpec} onChange={(event) => updateDraft("finpec", event.target.value)} style={inputStyle} type="number" step="0.01" placeholder="Finpec/arroba" />
             <select value={draft.status} onChange={(event) => updateDraft("status", event.target.value)} style={inputStyle}><option>Aberta</option><option>Fechada</option></select>
             <textarea value={draft.detalhes} onChange={(event) => updateDraft("detalhes", event.target.value)} style={{ ...notesStyle, gridColumn: "1 / -2" }} placeholder="Detalhes da operação" />
             <button onClick={addPosition} style={{ border: 0, background: "#2563eb", color: "#fff", borderRadius: 6, padding: "8px 10px", cursor: "pointer" }}>Gravar</button>
@@ -272,7 +272,7 @@ export default function Dashboard() {
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Posições gravadas</h2>
           <div style={{ overflowX: "auto" }}>
             <table>
-              <thead><tr><th className="L">Contrato</th><th className="L">Lado</th><th>Contr.</th><th>Data entrada</th><th>Entrada</th><th>Data saída</th><th>Saída</th><th>Atual</th><th>Corretora</th><th>Finpec</th><th>Status</th><th className="L">Detalhes</th><th>Resultado</th><th></th></tr></thead>
+              <thead><tr><th className="L">Contrato</th><th className="L">Lado</th><th>Contr.</th><th>Data entrada</th><th>Entrada</th><th>Data saída</th><th>Saída</th><th>Atual</th><th>Corretora/@</th><th>Finpec/@</th><th>Status</th><th className="L">Detalhes</th><th>Resultado</th><th></th></tr></thead>
               <tbody>
                 {enriched.map((position) => (
                   <tr key={position.id}>
