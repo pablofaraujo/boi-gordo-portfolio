@@ -165,6 +165,8 @@ export default function Dashboard() {
   }
 
   function resetPositions() {
+    const confirmed = window.confirm("Isso apaga as posições gravadas neste navegador e restaura a amostra. Deseja continuar?");
+    if (!confirmed) return;
     setPositions(DEFAULT_POSITIONS);
   }
 
@@ -189,7 +191,6 @@ export default function Dashboard() {
             <div style={{ fontSize: 10, letterSpacing: 1.8, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>B3 · BGI · Posições gravadas</div>
             <h1 style={{ fontSize: 22, margin: 0 }}>Boi Gordo — Portfólio</h1>
           </div>
-          <button onClick={resetPositions} style={{ border: "1px solid #cbd5e1", background: "#fff", borderRadius: 6, padding: "7px 10px", cursor: "pointer" }}>Restaurar amostra</button>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 16 }}>
@@ -340,6 +341,12 @@ export default function Dashboard() {
             </table>
           </div>
         </section>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+          <button onClick={resetPositions} style={{ border: "1px solid #e2e8f0", background: "transparent", color: "#94a3b8", borderRadius: 6, padding: "4px 7px", cursor: "pointer", fontSize: 10 }}>
+            Restaurar amostra
+          </button>
+        </div>
       </div>
     </div>
   );
