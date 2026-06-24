@@ -105,13 +105,9 @@ export default function Dashboard() {
   const closedPositions = enriched.filter(isClosed);
   const openCount = openPositions.length;
   const totalNet = closedPositions.reduce((sum, position) => sum + position.net, 0);
-  const totalGross = closedPositions.reduce((sum, position) => sum + position.gross, 0);
-  const totalCosts = closedPositions.reduce((sum, position) => sum + position.costs, 0);
   const closedNet = closedPositions.reduce((sum, position) => sum + position.net, 0);
   const closedBrokerCosts = closedPositions.reduce((sum, position) => sum + position.brokerCost, 0);
   const closedFinpecCosts = closedPositions.reduce((sum, position) => sum + position.finpecCost, 0);
-  const wonCount = closedPositions.filter((position) => position.net > 0).length;
-  const lostCount = closedPositions.filter((position) => position.net < 0).length;
 
   const grouped = BGI_INDICES.map((index) => {
     const rows = openPositions.filter((position) => position.contrato === index.contrato);
@@ -195,12 +191,8 @@ export default function Dashboard() {
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 16 }}>
           {[
-            ["Resultado líquido", fmtCurrency(totalNet), pnlColor(totalNet)],
-            ["Resultado bruto", fmtCurrency(totalGross), pnlColor(totalGross)],
-            ["Custos", fmtCurrency(totalCosts), "#475569"],
             ["Posição em aberto", `${openCount}`, "#475569"],
-            ["Histórico fechado", fmtCurrency(closedNet), pnlColor(closedNet)],
-            ["Ganhas / Perdidas", `${wonCount} / ${lostCount}`, "#475569"],
+            ["Resultado líquido", fmtCurrency(totalNet), pnlColor(totalNet)],
           ].map(([label, value, color]) => (
             <div key={label} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14 }}>
               <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", marginBottom: 6 }}>{label}</div>
