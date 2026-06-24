@@ -59,8 +59,10 @@ function resultForPosition(position, prices) {
   const explicitExit = position.saida !== "" && position.saida !== null && position.saida !== undefined;
   const exit = explicitExit ? toNumber(position.saida) : prices[position.contrato] || 0;
   const gross = position.lado === "Vendido" ? (entry - exit) * qty * LOTE : (exit - entry) * qty * LOTE;
-  const costs = (toNumber(position.corretora) + toNumber(position.finpec)) * qty * LOTE;
-  return { exit, gross, costs, net: gross - costs, source: explicitExit ? "Saída" : "Fechamento B3" };
+  const brokerCost = toNumber(position.corretora) * qty * LOTE;
+  const finpecCost = toNumber(position.finpec) * qty * LOTE;
+  const costs = brokerCost + finpecCost;
+  return { exit, gross, costs, brokerCost, finpecCost, net: gross - costs, source: explicitExit ? "Saída" : "Fechamento B3" };
 }
 
 function normalizePosition(position) {
@@ -106,6 +108,8 @@ export default function Dashboard() {
   const closedPositions = enriched.filter(isClosed);
   const openCount = openPositions.length;
   const closedNet = closedPositions.reduce((sum, position) => sum + position.net, 0);
+  const closedBrokerCosts = closedPositions.reduce((sum, position) => sum + position.brokerCost, 0);
+  const closedFinpecCosts = closedPositions.reduce((sum, position) => sum + position.finpecCost, 0);
   const wonCount = closedPositions.filter((position) => position.net > 0).length;
   const lostCount = closedPositions.filter((position) => position.net < 0).length;
 
@@ -299,9 +303,21 @@ export default function Dashboard() {
 
         <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14, marginTop: 16 }}>
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Histórico de posições encerradas</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 12 }}>
+            {[
+              ["Resultado consolidado", fmtCurrency(closedNet), pnlColor(closedNet)],
+              ["Pago corretora", fmtCurrency(closedBrokerCosts), "#475569"],
+              ["Pago Finpec", fmtCurrency(closedFinpecCosts), "#475569"],
+            ].map(([label, value, color]) => (
+              <div key={label} style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: 10 }}>
+                <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color }}>{value}</div>
+              </div>
+            ))}
+          </div>
           <div style={{ overflowX: "auto" }}>
             <table>
-              <thead><tr><th className="L">Contrato</th><th className="L">Lado</th><th>Contr.</th><th>Entrada</th><th>Saída</th><th>Data saída</th><th>Resultado</th><th>Ganho/Perda</th><th className="L">Detalhes</th></tr></thead>
+              <thead><tr><th className="L">Contrato</th><th className="L">Lado</th><th>Contr.</th><th>Entrada</th><th>Saída</th><th>Data saída</th><th>Corretora</th><th>Finpec</th><th>Resultado</th><th>Ganho/Perda</th><th className="L">Detalhes</th></tr></thead>
               <tbody>
                 {closedPositions.length ? closedPositions.map((position) => (
                   <tr key={`history-${position.id}`}>
@@ -311,12 +327,14 @@ export default function Dashboard() {
                     <td>R$ {fmtPrice(position.entrada)}</td>
                     <td>R$ {fmtPrice(position.saida)}</td>
                     <td>{position.dataSaida || "-"}</td>
+                    <td>{fmtCurrency(position.brokerCost)}</td>
+                    <td>{fmtCurrency(position.finpecCost)}</td>
                     <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtCurrency(position.net)}</td>
                     <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{outcomeLabel(position.net)}</td>
                     <td className="L">{position.detalhes || "-"}</td>
                   </tr>
                 )) : (
-                  <tr><td className="L" colSpan="9" style={{ color: "#64748b" }}>Preencha a saída ou marque a posição como fechada para aparecer no histórico.</td></tr>
+                  <tr><td className="L" colSpan="11" style={{ color: "#64748b" }}>Preencha a saída ou marque a posição como fechada para aparecer no histórico.</td></tr>
                 )}
               </tbody>
             </table>
