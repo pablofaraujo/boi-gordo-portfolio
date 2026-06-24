@@ -44,6 +44,10 @@ function closingByContract() {
   return BGI_INDICES.reduce((acc, item) => ({ ...acc, [item.contrato]: item.fechamento }), {});
 }
 
+function indexByVencimento(vencimento) {
+  return BGI_INDICES.find((item) => item.vencimento === vencimento || item.contrato === vencimento || item.contrato.endsWith(vencimento));
+}
+
 function fmtCurrency(value) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
 }
@@ -80,6 +84,49 @@ function outcomeLabel(value) {
   return "Zero";
 }
 
+function parsePortfolioImport(text) {
+  const imported = [];
+  let currentIndex = null;
+  const lines = text.split(/\r?\n/);
+
+  lines.forEach((line, lineIndex) => {
+    const upper = line.toUpperCase();
+    if (!line.trim() || upper.includes("SAIDA") || upper.includes("SAÍDA")) return;
+
+    const contractMatch = upper.match(/\bBGI([A-Z]\d{2})\b/);
+    const expiryMatch = upper.match(/\b([FGHJKMNQUVXZ]\d{2})\b/);
+    const foundIndex = indexByVencimento(contractMatch ? contractMatch[1] : expiryMatch?.[1]);
+    if (foundIndex) currentIndex = foundIndex;
+
+    const numberMatches = line.match(/-?\d+(?:[.,]\d+)?/g) || [];
+    const parsedNumbers = numberMatches.map(toNumber).filter((value) => Number.isFinite(value));
+    if (!currentIndex || parsedNumbers.length < 2 || !upper.includes("FUTURO")) return;
+
+    const entry = parsedNumbers[0];
+    const signedContracts = parsedNumbers[parsedNumbers.length - 1];
+    const contracts = Math.abs(signedContracts);
+    if (!entry || !contracts) return;
+
+    imported.push({
+      id: `import-${Date.now()}-${lineIndex}`,
+      contrato: currentIndex.contrato,
+      mes: currentIndex.mes,
+      lado: signedContracts < 0 ? "Vendido" : "Comprado",
+      contratos,
+      entrada: entry,
+      saida: "",
+      dataEntrada: "",
+      dataSaida: "",
+      corretora: 0,
+      finpec: 0,
+      status: "Aberta",
+      detalhes: "Importado",
+    });
+  });
+
+  return imported;
+}
+
 function loadStoredPositions() {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -94,6 +141,8 @@ function loadStoredPositions() {
 export default function Dashboard() {
   const [positions, setPositions] = useState(loadStoredPositions);
   const [draft, setDraft] = useState(emptyDraft);
+  const [importText, setImportText] = useState("");
+  const [importMessage, setImportMessage] = useState("");
   const prices = useMemo(closingByContract, []);
 
   useEffect(() => {
@@ -129,6 +178,16 @@ export default function Dashboard() {
     if (!draft.contrato || !toNumber(draft.contratos) || !toNumber(draft.entrada)) return;
     setPositions((current) => [...current, { ...draft, id: `${Date.now()}` }]);
     setDraft(emptyDraft);
+  }
+
+  function importOpenPositions() {
+    const imported = parsePortfolioImport(importText);
+    if (!imported.length) {
+      setImportMessage("Nenhuma posição aberta encontrada no texto colado.");
+      return;
+    }
+    setPositions((current) => [...current.filter(isClosed), ...imported]);
+    setImportMessage(`${imported.length} posições abertas importadas. O histórico fechado foi preservado.`);
   }
 
   function updatePosition(id, field, value) {
@@ -206,6 +265,20 @@ export default function Dashboard() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </section>
+
+        <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14, marginBottom: 16 }}>
+          <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Importar posições em aberto</h2>
+          <textarea
+            value={importText}
+            onChange={(event) => setImportText(event.target.value)}
+            style={{ ...notesStyle, minHeight: 86, marginBottom: 8 }}
+            placeholder={"Cole aqui a lista com vencimento, preço médio e contratos. Ex.: M26 / FUTURO R$ 348,25 -6,00"}
+          />
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <button onClick={importOpenPositions} style={{ border: 0, background: "#0f766e", color: "#fff", borderRadius: 6, padding: "8px 10px", cursor: "pointer" }}>Atualizar abertas</button>
+            {importMessage ? <span style={{ color: "#64748b", fontSize: 12 }}>{importMessage}</span> : null}
           </div>
         </section>
 
