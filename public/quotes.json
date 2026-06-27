@@ -1,0 +1,10 @@
+{
+  "source": "Cotacoes base do painel",
+  "updatedAt": "2026-06-27T00:00:00-03:00",
+  "prices": {
+    "BGIM26": 343.5,
+    "BGIN26": 334.5,
+    "BGIU26": 337.85,
+    "BGIV26": 345.8
+  }
+}
