@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 
 const LOTE = 330;
 const STORAGE_KEY = "bgi-portfolio-positions-v1";
+const QUOTES_STORAGE_KEY = "bgi-portfolio-quotes-v1";
+const QUOTES_REFRESH_MS = 15 * 60 * 1000;
 
 const BGI_INDICES = [
   { vencimento: "M26", mes: "Junho/26", contrato: "BGIM26", fechamento: 343.5 },
@@ -45,6 +47,11 @@ function closingByContract() {
   return BGI_INDICES.reduce((acc, item) => ({ ...acc, [item.contrato]: item.fechamento }), {});
 }
 
+function publicPath(path) {
+  const base = process.env.PUBLIC_URL || "";
+  return `${base}${path}`;
+}
+
 function indexByVencimento(vencimento) {
   return BGI_INDICES.find((item) => item.vencimento === vencimento || item.contrato === vencimento || item.contrato.endsWith(vencimento));
 }
@@ -56,6 +63,13 @@ function fmtCurrency(value) {
 function fmtPrice(value) {
   if (value === "" || value === null || value === undefined) return "-";
   return Number(value).toFixed(2).replace(".", ",");
+}
+
+function fmtDateTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(date);
 }
 
 function resultForPosition(position, prices) {
@@ -140,16 +154,79 @@ function loadStoredPositions() {
   }
 }
 
+function normalizeQuotes(payload) {
+  const quoteList = Array.isArray(payload?.quotes)
+    ? payload.quotes
+    : Object.entries(payload?.prices || {}).map(([contrato, fechamento]) => ({ contrato, fechamento }));
+
+  const prices = quoteList.reduce((acc, quote) => {
+    const contrato = String(quote.contrato || "").toUpperCase();
+    const price = toNumber(quote.fechamento ?? quote.preco ?? quote.price ?? quote.last);
+    if (!contrato || !price) return acc;
+    return { ...acc, [contrato]: price };
+  }, {});
+
+  return {
+    prices,
+    updatedAt: payload?.updatedAt || payload?.updated_at || payload?.data || "",
+    source: payload?.source || payload?.fonte || "Arquivo de cotações",
+  };
+}
+
+function loadStoredQuotes() {
+  try {
+    const raw = window.localStorage.getItem(QUOTES_STORAGE_KEY);
+    if (!raw) return { prices: {}, updatedAt: "", source: "" };
+    return normalizeQuotes(JSON.parse(raw));
+  } catch {
+    return { prices: {}, updatedAt: "", source: "" };
+  }
+}
+
 export default function Dashboard() {
   const [positions, setPositions] = useState(loadStoredPositions);
   const [draft, setDraft] = useState(emptyDraft);
   const [importText, setImportText] = useState("");
   const [importMessage, setImportMessage] = useState("");
-  const prices = useMemo(closingByContract, []);
+  const [marketQuotes, setMarketQuotes] = useState(loadStoredQuotes);
+  const [quoteStatus, setQuoteStatus] = useState("Atualizando cotações...");
+  const fallbackPrices = useMemo(closingByContract, []);
+  const prices = useMemo(() => ({ ...fallbackPrices, ...marketQuotes.prices }), [fallbackPrices, marketQuotes]);
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(positions));
   }, [positions]);
+
+  useEffect(() => {
+    let active = true;
+    let timer;
+
+    async function refreshQuotes() {
+      try {
+        const response = await fetch(`${publicPath("/quotes.json")}?t=${Date.now()}`, { cache: "no-store" });
+        if (!response.ok) throw new Error("Arquivo de cotações indisponível");
+        const payload = await response.json();
+        const normalized = normalizeQuotes(payload);
+        if (!Object.keys(normalized.prices).length) throw new Error("Arquivo sem preços válidos");
+        if (!active) return;
+        setMarketQuotes(normalized);
+        window.localStorage.setItem(QUOTES_STORAGE_KEY, JSON.stringify(normalized));
+        setQuoteStatus(`Cotações automáticas atualizadas em ${fmtDateTime(normalized.updatedAt || new Date().toISOString())}`);
+      } catch {
+        if (!active) return;
+        setQuoteStatus(marketQuotes.updatedAt
+          ? `Usando última cotação salva de ${fmtDateTime(marketQuotes.updatedAt)}`
+          : "Usando cotações base até a fonte automática atualizar");
+      }
+    }
+
+    refreshQuotes();
+    timer = window.setInterval(refreshQuotes, QUOTES_REFRESH_MS);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [marketQuotes.updatedAt]);
 
   const enriched = positions.map((position) => ({ ...normalizePosition(position), ...resultForPosition(position, prices) }));
   const openPositions = enriched.filter((position) => !isClosed(position));
@@ -238,6 +315,24 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
+
+        <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 12, marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <div>
+              <h2 style={{ fontSize: 14, margin: "0 0 4px" }}>Cotações automáticas</h2>
+              <div style={{ fontSize: 12, color: "#64748b" }}>{quoteStatus}</div>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 3 }}>Fonte: {marketQuotes.source || "cotações base"}</div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {BGI_INDICES.map((item) => (
+                <div key={item.contrato} style={{ border: "1px solid #e2e8f0", borderRadius: 6, padding: "6px 8px", minWidth: 88 }}>
+                  <div style={{ fontSize: 10, color: "#64748b" }}>{item.contrato}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>R$ {fmtPrice(prices[item.contrato])}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
 
         <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14, marginBottom: 16 }}>
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Posição em aberto</h2>
