@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 const LOTE = 330;
 const STORAGE_KEY = "bgi-portfolio-positions-v1";
 const QUOTES_STORAGE_KEY = "bgi-portfolio-quotes-v1";
-const QUOTES_REFRESH_MS = 15 * 60 * 1000;
 
 const BGI_INDICES = [
   { vencimento: "M26", mes: "Junho/26", contrato: "BGIM26", fechamento: 343.5 },
@@ -189,7 +188,8 @@ export default function Dashboard() {
   const [importText, setImportText] = useState("");
   const [importMessage, setImportMessage] = useState("");
   const [marketQuotes, setMarketQuotes] = useState(loadStoredQuotes);
-  const [quoteStatus, setQuoteStatus] = useState("Atualizando cotações...");
+  const [quoteStatus, setQuoteStatus] = useState("Clique para atualizar quando quiser buscar o último arquivo de cotações.");
+  const [quoteLoading, setQuoteLoading] = useState(false);
   const fallbackPrices = useMemo(closingByContract, []);
   const prices = useMemo(() => ({ ...fallbackPrices, ...marketQuotes.prices }), [fallbackPrices, marketQuotes]);
 
@@ -198,35 +198,31 @@ export default function Dashboard() {
   }, [positions]);
 
   useEffect(() => {
-    let active = true;
-    let timer;
-
-    async function refreshQuotes() {
-      try {
-        const response = await fetch(`${publicPath("/quotes.json")}?t=${Date.now()}`, { cache: "no-store" });
-        if (!response.ok) throw new Error("Arquivo de cotações indisponível");
-        const payload = await response.json();
-        const normalized = normalizeQuotes(payload);
-        if (!Object.keys(normalized.prices).length) throw new Error("Arquivo sem preços válidos");
-        if (!active) return;
-        setMarketQuotes(normalized);
-        window.localStorage.setItem(QUOTES_STORAGE_KEY, JSON.stringify(normalized));
-        setQuoteStatus(`Cotações automáticas atualizadas em ${fmtDateTime(normalized.updatedAt || new Date().toISOString())}`);
-      } catch {
-        if (!active) return;
-        setQuoteStatus(marketQuotes.updatedAt
-          ? `Usando última cotação salva de ${fmtDateTime(marketQuotes.updatedAt)}`
-          : "Usando cotações base até a fonte automática atualizar");
-      }
+    if (marketQuotes.updatedAt) {
+      setQuoteStatus(`Última cotação salva: ${fmtDateTime(marketQuotes.updatedAt)}`);
     }
-
-    refreshQuotes();
-    timer = window.setInterval(refreshQuotes, QUOTES_REFRESH_MS);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
   }, [marketQuotes.updatedAt]);
+
+  async function refreshQuotes() {
+    setQuoteLoading(true);
+    setQuoteStatus("Buscando cotações...");
+    try {
+      const response = await fetch(`${publicPath("/quotes.json")}?t=${Date.now()}`, { cache: "no-store" });
+      if (!response.ok) throw new Error("Arquivo de cotações indisponível");
+      const payload = await response.json();
+      const normalized = normalizeQuotes(payload);
+      if (!Object.keys(normalized.prices).length) throw new Error("Arquivo sem preços válidos");
+      setMarketQuotes(normalized);
+      window.localStorage.setItem(QUOTES_STORAGE_KEY, JSON.stringify(normalized));
+      setQuoteStatus(`Cotações atualizadas em ${fmtDateTime(normalized.updatedAt || new Date().toISOString())}`);
+    } catch {
+      setQuoteStatus(marketQuotes.updatedAt
+        ? `Não consegui buscar agora. Mantive a última cotação salva de ${fmtDateTime(marketQuotes.updatedAt)}.`
+        : "Não consegui buscar agora. Mantive as cotações base.");
+    } finally {
+      setQuoteLoading(false);
+    }
+  }
 
   const enriched = positions.map((position) => ({ ...normalizePosition(position), ...resultForPosition(position, prices) }));
   const openPositions = enriched.filter((position) => !isClosed(position));
@@ -319,17 +315,22 @@ export default function Dashboard() {
         <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 12, marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             <div>
-              <h2 style={{ fontSize: 14, margin: "0 0 4px" }}>Cotações automáticas</h2>
+              <h2 style={{ fontSize: 14, margin: "0 0 4px" }}>Cotações</h2>
               <div style={{ fontSize: 12, color: "#64748b" }}>{quoteStatus}</div>
               <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 3 }}>Fonte: {marketQuotes.source || "cotações base"}</div>
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {BGI_INDICES.map((item) => (
-                <div key={item.contrato} style={{ border: "1px solid #e2e8f0", borderRadius: 6, padding: "6px 8px", minWidth: 88 }}>
-                  <div style={{ fontSize: 10, color: "#64748b" }}>{item.contrato}</div>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>R$ {fmtPrice(prices[item.contrato])}</div>
-                </div>
-              ))}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end" }}>
+              <button onClick={refreshQuotes} disabled={quoteLoading} style={{ border: 0, background: quoteLoading ? "#94a3b8" : "#2563eb", color: "#fff", borderRadius: 6, padding: "8px 10px", cursor: quoteLoading ? "wait" : "pointer", fontSize: 12 }}>
+                {quoteLoading ? "Atualizando..." : "Atualizar cotações"}
+              </button>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {BGI_INDICES.map((item) => (
+                  <div key={item.contrato} style={{ border: "1px solid #e2e8f0", borderRadius: 6, padding: "6px 8px", minWidth: 88 }}>
+                    <div style={{ fontSize: 10, color: "#64748b" }}>{item.contrato}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>R$ {fmtPrice(prices[item.contrato])}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </section>
