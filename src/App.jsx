@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 const LOTE = 330;
 const STORAGE_KEY = "bgi-portfolio-positions-v1";
 const QUOTES_STORAGE_KEY = "bgi-portfolio-quotes-v1";
+const B3_QUOTE_URL = "https://cotacao.b3.com.br/mds/api/v1/DailyFluctuationHistory";
 
 const BGI_INDICES = [
   { vencimento: "M26", mes: "Junho/26", contrato: "BGIM26", fechamento: 343.5 },
@@ -205,20 +206,35 @@ export default function Dashboard() {
 
   async function refreshQuotes() {
     setQuoteLoading(true);
-    setQuoteStatus("Buscando cotações...");
+    setQuoteStatus("Buscando cotações na B3...");
     try {
-      const response = await fetch(`${publicPath("/quotes.json")}?t=${Date.now()}`, { cache: "no-store" });
-      if (!response.ok) throw new Error("Arquivo de cotações indisponível");
-      const payload = await response.json();
-      const normalized = normalizeQuotes(payload);
-      if (!Object.keys(normalized.prices).length) throw new Error("Arquivo sem preços válidos");
+      const quoteResponses = await Promise.all(BGI_INDICES.map(async (item) => {
+        const response = await fetch(`${B3_QUOTE_URL}/${item.contrato}?t=${Date.now()}`, { cache: "no-store" });
+        if (!response.ok) throw new Error(`B3 indisponível para ${item.contrato}`);
+        const payload = await response.json();
+        const quotes = payload?.TradgFlr?.scty?.lstQtn || [];
+        const lastQuote = quotes[quotes.length - 1];
+        const price = toNumber(lastQuote?.closPric);
+        if (!price) throw new Error(`Sem cotação para ${item.contrato}`);
+        return {
+          contrato: item.contrato,
+          fechamento: price,
+          horario: lastQuote?.dtTm || "",
+          data: payload?.TradgFlr?.date || "",
+        };
+      }));
+      const normalized = {
+        prices: quoteResponses.reduce((acc, quote) => ({ ...acc, [quote.contrato]: quote.fechamento }), {}),
+        updatedAt: new Date().toISOString(),
+        source: "B3",
+      };
       setMarketQuotes(normalized);
       window.localStorage.setItem(QUOTES_STORAGE_KEY, JSON.stringify(normalized));
-      setQuoteStatus(`Cotações atualizadas em ${fmtDateTime(normalized.updatedAt || new Date().toISOString())}`);
+      setQuoteStatus(`Cotações B3 atualizadas em ${fmtDateTime(normalized.updatedAt)}`);
     } catch {
       setQuoteStatus(marketQuotes.updatedAt
-        ? `Não consegui buscar agora. Mantive a última cotação salva de ${fmtDateTime(marketQuotes.updatedAt)}.`
-        : "Não consegui buscar agora. Mantive as cotações base.");
+        ? `Não consegui buscar na B3 agora. Mantive a última cotação salva de ${fmtDateTime(marketQuotes.updatedAt)}.`
+        : "Não consegui buscar na B3 agora. Mantive as cotações base.");
     } finally {
       setQuoteLoading(false);
     }
