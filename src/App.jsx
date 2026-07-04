@@ -47,11 +47,6 @@ function closingByContract() {
   return BGI_INDICES.reduce((acc, item) => ({ ...acc, [item.contrato]: item.fechamento }), {});
 }
 
-function publicPath(path) {
-  const base = process.env.PUBLIC_URL || "";
-  return `${base}${path}`;
-}
-
 function indexByVencimento(vencimento) {
   return BGI_INDICES.find((item) => item.vencimento === vencimento || item.contrato === vencimento || item.contrato.endsWith(vencimento));
 }
@@ -207,8 +202,10 @@ export default function Dashboard() {
   async function refreshQuotes() {
     setQuoteLoading(true);
     setQuoteStatus("Buscando cotações na B3...");
-    try {
-      const quoteResponses = await Promise.all(BGI_INDICES.map(async (item) => {
+    const previousPrices = { ...fallbackPrices, ...marketQuotes.prices };
+
+    const quoteResponses = await Promise.all(BGI_INDICES.map(async (item) => {
+      try {
         const response = await fetch(`${B3_QUOTE_URL}/${item.contrato}?t=${Date.now()}`, { cache: "no-store" });
         if (!response.ok) throw new Error(`B3 indisponível para ${item.contrato}`);
         const payload = await response.json();
@@ -222,7 +219,18 @@ export default function Dashboard() {
           horario: lastQuote?.dtTm || "",
           data: payload?.TradgFlr?.date || "",
         };
-      }));
+      } catch {
+        return {
+          contrato: item.contrato,
+          fechamento: previousPrices[item.contrato],
+          fallback: true,
+        };
+      }
+    }));
+
+    try {
+      const updatedQuotes = quoteResponses.filter((quote) => !quote.fallback && quote.fechamento);
+      if (!updatedQuotes.length) throw new Error("Sem cotação atualizada na B3");
       const normalized = {
         prices: quoteResponses.reduce((acc, quote) => ({ ...acc, [quote.contrato]: quote.fechamento }), {}),
         updatedAt: new Date().toISOString(),
@@ -230,7 +238,10 @@ export default function Dashboard() {
       };
       setMarketQuotes(normalized);
       window.localStorage.setItem(QUOTES_STORAGE_KEY, JSON.stringify(normalized));
-      setQuoteStatus(`Cotações B3 atualizadas em ${fmtDateTime(normalized.updatedAt)}`);
+      const fallbackContracts = quoteResponses.filter((quote) => quote.fallback).map((quote) => quote.contrato);
+      setQuoteStatus(fallbackContracts.length
+        ? `B3 atualizou ${updatedQuotes.length} contrato(s). Mantive último valor em ${fallbackContracts.join(", ")}.`
+        : `Cotações B3 atualizadas em ${fmtDateTime(normalized.updatedAt)}`);
     } catch {
       setQuoteStatus(marketQuotes.updatedAt
         ? `Não consegui buscar na B3 agora. Mantive a última cotação salva de ${fmtDateTime(marketQuotes.updatedAt)}.`
