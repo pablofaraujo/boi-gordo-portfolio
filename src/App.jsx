@@ -56,6 +56,15 @@ function fmtCurrency(value) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
 }
 
+function fmtResult(value) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+  }).format(value || 0);
+}
+
 function fmtPrice(value) {
   if (value === "" || value === null || value === undefined) return "-";
   return Number(value).toFixed(2).replace(".", ",");
@@ -476,9 +485,9 @@ export default function Dashboard() {
       <style>{`
         * { box-sizing: border-box; }
         table { width: 100%; border-collapse: collapse; }
-        .data-table { table-layout: fixed; min-width: 960px; }
-        .edit-table { table-layout: fixed; min-width: 1270px; }
-        .history-table { table-layout: fixed; min-width: 1120px; }
+        .data-table { table-layout: fixed; min-width: 865px; }
+        .edit-table { table-layout: fixed; min-width: 1150px; }
+        .history-table { table-layout: fixed; min-width: 1040px; }
         th { text-align: right; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .3px; padding: 8px; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
         td { text-align: right; font-size: 12px; padding: 7px 8px; border-bottom: 1px solid #eef2f7; vertical-align: middle; }
         th.L, td.L { text-align: left; }
@@ -520,9 +529,9 @@ export default function Dashboard() {
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 16 }}>
           {[
-            ["Resultado parcial em aberto", fmtCurrency(openNet), pnlColor(openNet)],
+            ["Resultado parcial em aberto", fmtResult(openNet), pnlColor(openNet)],
             ["Posição em aberto", `${openCount}`, "#475569"],
-            ["Resultado líquido", fmtCurrency(totalNet), pnlColor(totalNet)],
+            ["Resultado líquido", fmtResult(totalNet), pnlColor(totalNet)],
           ].map(([label, value, color]) => (
             <div key={label} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14 }}>
               <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", marginBottom: 6 }}>{label}</div>
@@ -559,11 +568,11 @@ export default function Dashboard() {
           <div style={{ overflowX: "auto" }}>
             <table className="data-table">
               <colgroup>
-                <col style={{ width: 120 }} />
-                <col style={{ width: 128 }} />
-                <col style={{ width: 64 }} />
+                <col style={{ width: 96 }} />
+                <col style={{ width: 104 }} />
+                <col style={{ width: 52 }} />
                 <col style={{ width: 112 }} />
-                <col style={{ width: 112 }} />
+                <col style={{ width: 86 }} />
                 <col style={{ width: 98 }} />
                 <col style={{ width: 132 }} />
                 <col style={{ width: 146 }} />
@@ -579,7 +588,7 @@ export default function Dashboard() {
                     <td>R$ {fmtPrice(position.entrada)}</td>
                     <td>R$ {fmtPrice(position.exit)}</td>
                     <td>{fmtCurrency(position.costs)}</td>
-                    <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtCurrency(position.net)}</td>
+                    <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtResult(position.net)}</td>
                     <td className="L">{position.negocio || "-"}</td>
                     <td className="L">{position.detalhes || "-"}</td>
                   </tr>
@@ -629,14 +638,14 @@ export default function Dashboard() {
           <div style={{ overflowX: "auto" }}>
             <table className="edit-table">
               <colgroup>
-                <col style={{ width: 132 }} />
-                <col style={{ width: 128 }} />
-                <col style={{ width: 64 }} />
+                <col style={{ width: 96 }} />
+                <col style={{ width: 106 }} />
+                <col style={{ width: 52 }} />
                 <col style={{ width: 132 }} />
                 <col style={{ width: 150 }} />
-                <col style={{ width: 92 }} />
+                <col style={{ width: 72 }} />
                 <col style={{ width: 86 }} />
-                <col style={{ width: 112 }} />
+                <col style={{ width: 84 }} />
                 <col style={{ width: 150 }} />
                 <col style={{ width: 126 }} />
                 <col style={{ width: 130 }} />
@@ -671,7 +680,7 @@ export default function Dashboard() {
                     <td><select value={position.status} onChange={(event) => updatePosition(position.id, "status", event.target.value)} style={cellInputStyle}><option>Aberta</option><option>Fechada</option></select></td>
                     <td className="L"><textarea value={position.negocio} onChange={(event) => updatePosition(position.id, "negocio", event.target.value)} style={smallNotesStyle} placeholder="CF-26-009: 3 contratos" /></td>
                     <td className="L"><textarea value={position.detalhes} onChange={(event) => updatePosition(position.id, "detalhes", event.target.value)} style={smallNotesStyle} placeholder="Detalhes" /></td>
-                    <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtCurrency(position.net)}</td>
+                    <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtResult(position.net)}</td>
                     <td><button onClick={() => deletePosition(position.id)} style={{ border: "1px solid #fecaca", background: "#fff", color: "#b91c1c", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>Excluir</button></td>
                   </tr>
                 )) : (
@@ -686,7 +695,7 @@ export default function Dashboard() {
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Histórico de posições encerradas</h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 12 }}>
             {[
-              ["Resultado consolidado", fmtCurrency(closedNet), pnlColor(closedNet)],
+              ["Resultado consolidado", fmtResult(closedNet), pnlColor(closedNet)],
               ["Pago corretora", fmtCurrency(closedBrokerCosts), "#475569"],
               ["Pago Finpec", fmtCurrency(closedFinpecCosts), "#475569"],
             ].map(([label, value, color]) => (
@@ -699,9 +708,9 @@ export default function Dashboard() {
           <div style={{ overflowX: "auto" }}>
             <table className="history-table">
               <colgroup>
-                <col style={{ width: 120 }} />
-                <col style={{ width: 128 }} />
-                <col style={{ width: 64 }} />
+                <col style={{ width: 96 }} />
+                <col style={{ width: 104 }} />
+                <col style={{ width: 52 }} />
                 <col style={{ width: 112 }} />
                 <col style={{ width: 112 }} />
                 <col style={{ width: 108 }} />
@@ -724,7 +733,7 @@ export default function Dashboard() {
                     <td>{position.dataSaida || "-"}</td>
                     <td>{fmtCurrency(position.brokerCost)}</td>
                     <td>{fmtCurrency(position.finpecCost)}</td>
-                    <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtCurrency(position.net)}</td>
+                    <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtResult(position.net)}</td>
                     <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{outcomeLabel(position.net)}</td>
                     <td className="L">{position.negocio || "-"}</td>
                     <td className="L">{position.detalhes || "-"}</td>
