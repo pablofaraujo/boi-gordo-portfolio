@@ -394,6 +394,7 @@ export default function Dashboard() {
   const enriched = positions.map((position) => ({ ...normalizePosition(position), ...resultForPosition(position, prices) }));
   const openPositions = enriched.filter((position) => !isClosed(position));
   const closedPositions = enriched.filter(isClosed);
+  const editablePositions = openPositions;
   const openCount = openPositions.length;
   const openNet = openPositions.reduce((sum, position) => sum + position.net, 0);
   const totalNet = closedPositions.reduce((sum, position) => sum + position.net, 0);
@@ -476,7 +477,7 @@ export default function Dashboard() {
         * { box-sizing: border-box; }
         table { width: 100%; border-collapse: collapse; }
         .data-table { table-layout: fixed; min-width: 960px; }
-        .edit-table { table-layout: fixed; min-width: 1500px; }
+        .edit-table { table-layout: fixed; min-width: 1270px; }
         .history-table { table-layout: fixed; min-width: 1120px; }
         th { text-align: right; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .3px; padding: 8px; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
         td { text-align: right; font-size: 12px; padding: 7px 8px; border-bottom: 1px solid #eef2f7; vertical-align: middle; }
@@ -484,23 +485,20 @@ export default function Dashboard() {
         td.price-cell input { font-variant-numeric: tabular-nums; }
         .row-position-select { font-weight: 700; }
         .brand-mark {
-          width: 116px;
-          min-height: 58px;
-          border-radius: 8px;
-          background: #0f172a;
-          color: #fff;
-          border: 1px solid #1f2937;
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-          padding: 10px 12px;
-          box-shadow: inset 0 -18px 0 rgba(20, 184, 166, .18);
+          width: 58px;
+          height: 58px;
+          border-radius: 50%;
+          object-fit: cover;
+          flex-shrink: 0;
+          border: 1px solid #e5e7eb;
+          box-shadow: 0 1px 4px rgba(15, 23, 42, .12);
         }
-        .brand-mark strong { font-size: 17px; line-height: 1; letter-spacing: .2px; }
-        .brand-mark span { font-size: 9px; color: #99f6e4; margin-top: 5px; text-transform: uppercase; letter-spacing: .8px; }
+        .stacked-cell { display: grid; gap: 5px; }
+        .stacked-field { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 5px; align-items: center; }
+        .stacked-label { color: #94a3b8; font-size: 9px; font-weight: 700; text-align: left; text-transform: uppercase; }
         .new-position-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
         @media (max-width: 720px) {
-          .brand-mark { width: 104px; min-height: 54px; }
+          .brand-mark { width: 52px; height: 52px; }
           .new-position-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
         button { font: inherit; }
@@ -508,10 +506,7 @@ export default function Dashboard() {
       <div style={{ maxWidth: 1280, margin: "0 auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
           <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 280 }}>
-            <div className="brand-mark" aria-label="Confinex">
-              <strong>Confinex</strong>
-              <span>BGI</span>
-            </div>
+            <img className="brand-mark" src={`${process.env.PUBLIC_URL || ""}/confinex-logo.jpg`} alt="Confinex" />
             <div>
               <div style={{ fontSize: 10, letterSpacing: 1.8, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>B3 · BGI · Posições gravadas</div>
               <h1 style={{ fontSize: 22, margin: 0 }}>Boi Gordo — Portfólio</h1>
@@ -637,40 +632,51 @@ export default function Dashboard() {
                 <col style={{ width: 132 }} />
                 <col style={{ width: 128 }} />
                 <col style={{ width: 64 }} />
-                <col style={{ width: 112 }} />
-                <col style={{ width: 140 }} />
-                <col style={{ width: 108 }} />
-                <col style={{ width: 140 }} />
+                <col style={{ width: 132 }} />
+                <col style={{ width: 150 }} />
                 <col style={{ width: 92 }} />
-                <col style={{ width: 74 }} />
-                <col style={{ width: 70 }} />
+                <col style={{ width: 86 }} />
                 <col style={{ width: 112 }} />
                 <col style={{ width: 150 }} />
                 <col style={{ width: 126 }} />
                 <col style={{ width: 130 }} />
                 <col style={{ width: 72 }} />
               </colgroup>
-              <thead><tr><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th>Data entrada</th><th>Entrada</th><th>Data saída</th><th>Saída</th><th>Atual</th><th>Corret.</th><th>Finpec</th><th>Status</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th><th>Resultado</th><th></th></tr></thead>
+              <thead><tr><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th className="L">Datas</th><th className="L">Preços</th><th>Atual</th><th>Custos/@</th><th>Status</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th><th>Resultado</th><th></th></tr></thead>
               <tbody>
-                {enriched.map((position) => (
+                {editablePositions.length ? editablePositions.map((position) => (
                   <tr key={position.id} style={positionRowStyle(position.lado)}>
                     <td className="L"><select value={position.contrato} onChange={(event) => updatePosition(position.id, "contrato", event.target.value)} style={cellInputStyle}>{BGI_INDICES.map((item) => <option key={item.contrato}>{item.contrato}</option>)}</select></td>
                     <td className="L"><select className="row-position-select" value={position.lado} onChange={(event) => updatePosition(position.id, "lado", event.target.value)} style={{ ...cellInputStyle, ...positionBadge(position.lado), minWidth: "100%", borderRadius: 6, textAlign: "left" }}><option>Vendido</option><option>Comprado</option></select></td>
                     <td><input value={position.contratos} onChange={(event) => updatePosition(position.id, "contratos", event.target.value)} style={compactCellInputStyle} type="number" /></td>
-                    <td><input value={position.dataEntrada} onChange={(event) => updatePosition(position.id, "dataEntrada", event.target.value)} style={cellInputStyle} type="date" /></td>
-                    <td className="price-cell"><input value={position.entrada} onChange={(event) => updatePosition(position.id, "entrada", event.target.value)} style={cellInputStyle} type="number" step="0.01" /></td>
-                    <td><input value={position.dataSaida} onChange={(event) => updatePosition(position.id, "dataSaida", event.target.value)} style={cellInputStyle} type="date" /></td>
-                    <td className="price-cell"><input value={position.saida} onChange={(event) => updatePosition(position.id, "saida", event.target.value)} style={cellInputStyle} type="number" step="0.01" placeholder={fmtPrice(position.exit)} /></td>
+                    <td>
+                      <div className="stacked-cell">
+                        <label className="stacked-field"><span className="stacked-label">Ent.</span><input value={position.dataEntrada} onChange={(event) => updatePosition(position.id, "dataEntrada", event.target.value)} style={compactCellInputStyle} type="date" /></label>
+                        <label className="stacked-field"><span className="stacked-label">Saída</span><input value={position.dataSaida} onChange={(event) => updatePosition(position.id, "dataSaida", event.target.value)} style={compactCellInputStyle} type="date" /></label>
+                      </div>
+                    </td>
+                    <td className="price-cell">
+                      <div className="stacked-cell">
+                        <label className="stacked-field"><span className="stacked-label">Ent.</span><input value={position.entrada} onChange={(event) => updatePosition(position.id, "entrada", event.target.value)} style={cellInputStyle} type="number" step="0.01" /></label>
+                        <label className="stacked-field"><span className="stacked-label">Saída</span><input value={position.saida} onChange={(event) => updatePosition(position.id, "saida", event.target.value)} style={cellInputStyle} type="number" step="0.01" placeholder={fmtPrice(position.exit)} /></label>
+                      </div>
+                    </td>
                     <td>{fmtPrice(position.exit)}<div style={{ color: "#94a3b8", fontSize: 10 }}>{position.source}</div></td>
-                    <td><input value={position.corretora} onChange={(event) => updatePosition(position.id, "corretora", event.target.value)} style={compactCellInputStyle} type="number" step="0.01" /></td>
-                    <td><input value={position.finpec} onChange={(event) => updatePosition(position.id, "finpec", event.target.value)} style={compactCellInputStyle} type="number" step="0.01" /></td>
+                    <td>
+                      <div className="stacked-cell">
+                        <label className="stacked-field"><span className="stacked-label">Cor.</span><input value={position.corretora} onChange={(event) => updatePosition(position.id, "corretora", event.target.value)} style={compactCellInputStyle} type="number" step="0.01" /></label>
+                        <label className="stacked-field"><span className="stacked-label">Fin.</span><input value={position.finpec} onChange={(event) => updatePosition(position.id, "finpec", event.target.value)} style={compactCellInputStyle} type="number" step="0.01" /></label>
+                      </div>
+                    </td>
                     <td><select value={position.status} onChange={(event) => updatePosition(position.id, "status", event.target.value)} style={cellInputStyle}><option>Aberta</option><option>Fechada</option></select></td>
                     <td className="L"><textarea value={position.negocio} onChange={(event) => updatePosition(position.id, "negocio", event.target.value)} style={smallNotesStyle} placeholder="CF-26-009: 3 contratos" /></td>
                     <td className="L"><textarea value={position.detalhes} onChange={(event) => updatePosition(position.id, "detalhes", event.target.value)} style={smallNotesStyle} placeholder="Detalhes" /></td>
                     <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtCurrency(position.net)}</td>
                     <td><button onClick={() => deletePosition(position.id)} style={{ border: "1px solid #fecaca", background: "#fff", color: "#b91c1c", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>Excluir</button></td>
                   </tr>
-                ))}
+                )) : (
+                  <tr><td className="L" colSpan="12" style={{ color: "#64748b" }}>Nenhuma posição aberta para editar. As posições encerradas estão no histórico abaixo.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
