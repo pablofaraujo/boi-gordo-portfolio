@@ -95,6 +95,12 @@ function outcomeLabel(value) {
   return "Zero";
 }
 
+function positionTone(lado) {
+  return lado === "Comprado"
+    ? { bg: "#e0f2fe", border: "#0284c7", color: "#075985", row: "#f7fbff" }
+    : { bg: "#fee2e2", border: "#dc2626", color: "#991b1b", row: "#fff8f8" };
+}
+
 function parsePortfolioImport(text) {
   const imported = [];
   let currentIndex = null;
@@ -440,24 +446,77 @@ export default function Dashboard() {
   const pnlColor = (value) => (value >= 0 ? "#15803d" : "#b91c1c");
   const inputStyle = { width: "100%", border: "1px solid #d1d5db", borderRadius: 6, padding: "7px 8px", font: "inherit", fontSize: 12, background: "#fff" };
   const cellInputStyle = { ...inputStyle, padding: "5px 6px" };
+  const compactCellInputStyle = { ...cellInputStyle, padding: "5px 4px", fontSize: 11 };
   const notesStyle = { ...inputStyle, minHeight: 38, resize: "vertical" };
+  const smallNotesStyle = { ...notesStyle, minHeight: 34, fontSize: 11 };
+  const positionBadge = (lado) => {
+    const tone = positionTone(lado);
+    return {
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      minWidth: 76,
+      border: `1px solid ${tone.border}`,
+      background: tone.bg,
+      color: tone.color,
+      borderRadius: 999,
+      padding: "4px 8px",
+      fontSize: 11,
+      fontWeight: 700,
+    };
+  };
+  const positionRowStyle = (lado) => {
+    const tone = positionTone(lado);
+    return { borderLeft: `4px solid ${tone.border}`, background: tone.row };
+  };
 
   return (
     <div style={{ fontFamily: "Inter, system-ui, sans-serif", background: "#f8fafc", minHeight: "100vh", padding: 16, color: "#111827" }}>
       <style>{`
         * { box-sizing: border-box; }
         table { width: 100%; border-collapse: collapse; }
+        .data-table { table-layout: fixed; min-width: 960px; }
+        .edit-table { table-layout: fixed; min-width: 1500px; }
+        .history-table { table-layout: fixed; min-width: 1120px; }
         th { text-align: right; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .3px; padding: 8px; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
         td { text-align: right; font-size: 12px; padding: 7px 8px; border-bottom: 1px solid #eef2f7; vertical-align: middle; }
         th.L, td.L { text-align: left; }
+        td.price-cell input { font-variant-numeric: tabular-nums; }
+        .row-position-select { font-weight: 700; }
+        .brand-mark {
+          width: 116px;
+          min-height: 58px;
+          border-radius: 8px;
+          background: #0f172a;
+          color: #fff;
+          border: 1px solid #1f2937;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          padding: 10px 12px;
+          box-shadow: inset 0 -18px 0 rgba(20, 184, 166, .18);
+        }
+        .brand-mark strong { font-size: 17px; line-height: 1; letter-spacing: .2px; }
+        .brand-mark span { font-size: 9px; color: #99f6e4; margin-top: 5px; text-transform: uppercase; letter-spacing: .8px; }
+        .new-position-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+        @media (max-width: 720px) {
+          .brand-mark { width: 104px; min-height: 54px; }
+          .new-position-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
         button { font: inherit; }
       `}</style>
       <div style={{ maxWidth: 1280, margin: "0 auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-          <div>
-            <div style={{ fontSize: 10, letterSpacing: 1.8, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>B3 · BGI · Posições gravadas</div>
-            <h1 style={{ fontSize: 22, margin: 0 }}>Boi Gordo — Portfólio</h1>
-            <div style={{ fontSize: 11, color: sheetsApiUrl ? "#0f766e" : "#94a3b8", marginTop: 5 }}>{syncStatus}</div>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 280 }}>
+            <div className="brand-mark" aria-label="Confinex">
+              <strong>Confinex</strong>
+              <span>BGI</span>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, letterSpacing: 1.8, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>B3 · BGI · Posições gravadas</div>
+              <h1 style={{ fontSize: 22, margin: 0 }}>Boi Gordo — Portfólio</h1>
+              <div style={{ fontSize: 11, color: sheetsApiUrl ? "#0f766e" : "#94a3b8", marginTop: 5 }}>{syncStatus}</div>
+            </div>
           </div>
           <button onClick={refreshPositionsFromSheets} disabled={syncLoading || !sheetsApiUrl} style={{ border: "1px solid #cbd5e1", background: "#fff", color: sheetsApiUrl ? "#334155" : "#94a3b8", borderRadius: 6, padding: "7px 9px", cursor: syncLoading || !sheetsApiUrl ? "not-allowed" : "pointer", fontSize: 12 }}>
             {syncLoading ? "Sincronizando..." : "Sincronizar posições"}
@@ -503,13 +562,24 @@ export default function Dashboard() {
         <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14, marginBottom: 16 }}>
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Posição em aberto</h2>
           <div style={{ overflowX: "auto" }}>
-            <table>
-              <thead><tr><th className="L">Contrato</th><th className="L">Lado</th><th>Contr.</th><th>Entrada</th><th>Atual</th><th>Custos</th><th>Resultado</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th></tr></thead>
+            <table className="data-table">
+              <colgroup>
+                <col style={{ width: 120 }} />
+                <col style={{ width: 128 }} />
+                <col style={{ width: 64 }} />
+                <col style={{ width: 112 }} />
+                <col style={{ width: 112 }} />
+                <col style={{ width: 98 }} />
+                <col style={{ width: 132 }} />
+                <col style={{ width: 146 }} />
+                <col style={{ width: 120 }} />
+              </colgroup>
+              <thead><tr><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th>Entrada</th><th>Atual</th><th>Custos</th><th>Resultado</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th></tr></thead>
               <tbody>
                 {openPositions.length ? openPositions.map((position) => (
-                  <tr key={`open-${position.id}`}>
+                  <tr key={`open-${position.id}`} style={positionRowStyle(position.lado)}>
                     <td className="L" style={{ fontWeight: 700 }}>{position.contrato}</td>
-                    <td className="L">{position.lado}</td>
+                    <td className="L"><span style={positionBadge(position.lado)}>{position.lado}</span></td>
                     <td>{position.contratos}</td>
                     <td>R$ {fmtPrice(position.entrada)}</td>
                     <td>R$ {fmtPrice(position.exit)}</td>
@@ -542,7 +612,7 @@ export default function Dashboard() {
 
         <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14, marginBottom: 16 }}>
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Nova posição</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}>
+          <div className="new-position-grid">
             <select value={draft.contrato} onChange={(event) => updateDraft("contrato", event.target.value)} style={inputStyle}>{BGI_INDICES.map((item) => <option key={item.contrato}>{item.contrato}</option>)}</select>
             <select value={draft.lado} onChange={(event) => updateDraft("lado", event.target.value)} style={inputStyle}><option>Vendido</option><option>Comprado</option></select>
             <input value={draft.contratos} onChange={(event) => updateDraft("contratos", event.target.value)} style={inputStyle} type="number" min="1" placeholder="Contratos" />
@@ -554,32 +624,49 @@ export default function Dashboard() {
             <input value={draft.finpec} onChange={(event) => updateDraft("finpec", event.target.value)} style={inputStyle} type="number" step="0.01" placeholder="Finpec/arroba" />
             <select value={draft.status} onChange={(event) => updateDraft("status", event.target.value)} style={inputStyle}><option>Aberta</option><option>Fechada</option></select>
             <textarea value={draft.negocio} onChange={(event) => updateDraft("negocio", event.target.value)} style={notesStyle} placeholder="Negócio / rateio. Ex.: CF-26-009: 3 contratos; CF-26-010: 2 contratos" />
-            <textarea value={draft.detalhes} onChange={(event) => updateDraft("detalhes", event.target.value)} style={{ ...notesStyle, gridColumn: "1 / -2" }} placeholder="Detalhes da operação" />
-            <button onClick={addPosition} style={{ border: 0, background: "#2563eb", color: "#fff", borderRadius: 6, padding: "8px 10px", cursor: "pointer" }}>Gravar</button>
+            <textarea value={draft.detalhes} onChange={(event) => updateDraft("detalhes", event.target.value)} style={{ ...notesStyle, gridColumn: "1 / -1" }} placeholder="Detalhes da operação" />
+            <button onClick={addPosition} style={{ border: 0, background: "#2563eb", color: "#fff", borderRadius: 6, padding: "8px 10px", cursor: "pointer", gridColumn: "1 / -1", justifySelf: "end", minWidth: 128 }}>Gravar</button>
           </div>
         </section>
 
         <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14 }}>
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Posições gravadas</h2>
           <div style={{ overflowX: "auto" }}>
-            <table>
-              <thead><tr><th className="L">Contrato</th><th className="L">Lado</th><th>Contr.</th><th>Data entrada</th><th>Entrada</th><th>Data saída</th><th>Saída</th><th>Atual</th><th>Corretora/@</th><th>Finpec/@</th><th>Status</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th><th>Resultado</th><th></th></tr></thead>
+            <table className="edit-table">
+              <colgroup>
+                <col style={{ width: 132 }} />
+                <col style={{ width: 128 }} />
+                <col style={{ width: 64 }} />
+                <col style={{ width: 112 }} />
+                <col style={{ width: 140 }} />
+                <col style={{ width: 108 }} />
+                <col style={{ width: 140 }} />
+                <col style={{ width: 92 }} />
+                <col style={{ width: 74 }} />
+                <col style={{ width: 70 }} />
+                <col style={{ width: 112 }} />
+                <col style={{ width: 150 }} />
+                <col style={{ width: 126 }} />
+                <col style={{ width: 130 }} />
+                <col style={{ width: 72 }} />
+              </colgroup>
+              <thead><tr><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th>Data entrada</th><th>Entrada</th><th>Data saída</th><th>Saída</th><th>Atual</th><th>Corret.</th><th>Finpec</th><th>Status</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th><th>Resultado</th><th></th></tr></thead>
               <tbody>
                 {enriched.map((position) => (
-                  <tr key={position.id}>
+                  <tr key={position.id} style={positionRowStyle(position.lado)}>
                     <td className="L"><select value={position.contrato} onChange={(event) => updatePosition(position.id, "contrato", event.target.value)} style={cellInputStyle}>{BGI_INDICES.map((item) => <option key={item.contrato}>{item.contrato}</option>)}</select></td>
-                    <td className="L"><select value={position.lado} onChange={(event) => updatePosition(position.id, "lado", event.target.value)} style={cellInputStyle}><option>Vendido</option><option>Comprado</option></select></td>
-                    <td><input value={position.contratos} onChange={(event) => updatePosition(position.id, "contratos", event.target.value)} style={cellInputStyle} type="number" /></td>
+                    <td className="L"><select className="row-position-select" value={position.lado} onChange={(event) => updatePosition(position.id, "lado", event.target.value)} style={{ ...cellInputStyle, ...positionBadge(position.lado), minWidth: "100%", borderRadius: 6, textAlign: "left" }}><option>Vendido</option><option>Comprado</option></select></td>
+                    <td><input value={position.contratos} onChange={(event) => updatePosition(position.id, "contratos", event.target.value)} style={compactCellInputStyle} type="number" /></td>
                     <td><input value={position.dataEntrada} onChange={(event) => updatePosition(position.id, "dataEntrada", event.target.value)} style={cellInputStyle} type="date" /></td>
-                    <td><input value={position.entrada} onChange={(event) => updatePosition(position.id, "entrada", event.target.value)} style={cellInputStyle} type="number" step="0.01" /></td>
+                    <td className="price-cell"><input value={position.entrada} onChange={(event) => updatePosition(position.id, "entrada", event.target.value)} style={cellInputStyle} type="number" step="0.01" /></td>
                     <td><input value={position.dataSaida} onChange={(event) => updatePosition(position.id, "dataSaida", event.target.value)} style={cellInputStyle} type="date" /></td>
-                    <td><input value={position.saida} onChange={(event) => updatePosition(position.id, "saida", event.target.value)} style={cellInputStyle} type="number" step="0.01" placeholder={fmtPrice(position.exit)} /></td>
+                    <td className="price-cell"><input value={position.saida} onChange={(event) => updatePosition(position.id, "saida", event.target.value)} style={cellInputStyle} type="number" step="0.01" placeholder={fmtPrice(position.exit)} /></td>
                     <td>{fmtPrice(position.exit)}<div style={{ color: "#94a3b8", fontSize: 10 }}>{position.source}</div></td>
-                    <td><input value={position.corretora} onChange={(event) => updatePosition(position.id, "corretora", event.target.value)} style={cellInputStyle} type="number" step="0.01" /></td>
-                    <td><input value={position.finpec} onChange={(event) => updatePosition(position.id, "finpec", event.target.value)} style={cellInputStyle} type="number" step="0.01" /></td>
+                    <td><input value={position.corretora} onChange={(event) => updatePosition(position.id, "corretora", event.target.value)} style={compactCellInputStyle} type="number" step="0.01" /></td>
+                    <td><input value={position.finpec} onChange={(event) => updatePosition(position.id, "finpec", event.target.value)} style={compactCellInputStyle} type="number" step="0.01" /></td>
                     <td><select value={position.status} onChange={(event) => updatePosition(position.id, "status", event.target.value)} style={cellInputStyle}><option>Aberta</option><option>Fechada</option></select></td>
-                    <td className="L" style={{ minWidth: 180 }}><textarea value={position.negocio} onChange={(event) => updatePosition(position.id, "negocio", event.target.value)} style={notesStyle} placeholder="CF-26-009: 3 contratos" /></td>
-                    <td className="L" style={{ minWidth: 180 }}><textarea value={position.detalhes} onChange={(event) => updatePosition(position.id, "detalhes", event.target.value)} style={notesStyle} placeholder="Detalhes" /></td>
+                    <td className="L"><textarea value={position.negocio} onChange={(event) => updatePosition(position.id, "negocio", event.target.value)} style={smallNotesStyle} placeholder="CF-26-009: 3 contratos" /></td>
+                    <td className="L"><textarea value={position.detalhes} onChange={(event) => updatePosition(position.id, "detalhes", event.target.value)} style={smallNotesStyle} placeholder="Detalhes" /></td>
                     <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtCurrency(position.net)}</td>
                     <td><button onClick={() => deletePosition(position.id)} style={{ border: "1px solid #fecaca", background: "#fff", color: "#b91c1c", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>Excluir</button></td>
                   </tr>
@@ -604,13 +691,27 @@ export default function Dashboard() {
             ))}
           </div>
           <div style={{ overflowX: "auto" }}>
-            <table>
-              <thead><tr><th className="L">Contrato</th><th className="L">Lado</th><th>Contr.</th><th>Entrada</th><th>Saída</th><th>Data saída</th><th>Corretora</th><th>Finpec</th><th>Resultado</th><th>Ganho/Perda</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th></tr></thead>
+            <table className="history-table">
+              <colgroup>
+                <col style={{ width: 120 }} />
+                <col style={{ width: 128 }} />
+                <col style={{ width: 64 }} />
+                <col style={{ width: 112 }} />
+                <col style={{ width: 112 }} />
+                <col style={{ width: 108 }} />
+                <col style={{ width: 92 }} />
+                <col style={{ width: 86 }} />
+                <col style={{ width: 132 }} />
+                <col style={{ width: 112 }} />
+                <col style={{ width: 148 }} />
+                <col style={{ width: 118 }} />
+              </colgroup>
+              <thead><tr><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th>Entrada</th><th>Saída</th><th>Data saída</th><th>Corretora</th><th>Finpec</th><th>Resultado</th><th>Ganho/Perda</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th></tr></thead>
               <tbody>
                 {closedPositions.length ? closedPositions.map((position) => (
-                  <tr key={`history-${position.id}`}>
+                  <tr key={`history-${position.id}`} style={positionRowStyle(position.lado)}>
                     <td className="L" style={{ fontWeight: 700 }}>{position.contrato}</td>
-                    <td className="L">{position.lado}</td>
+                    <td className="L"><span style={positionBadge(position.lado)}>{position.lado}</span></td>
                     <td>{position.contratos}</td>
                     <td>R$ {fmtPrice(position.entrada)}</td>
                     <td>R$ {fmtPrice(position.saida)}</td>
