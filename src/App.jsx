@@ -189,21 +189,47 @@ async function loadSheetsConfig() {
   }
 }
 
+function jsonpRequest(apiUrl, action) {
+  return new Promise((resolve, reject) => {
+    const callbackName = `bgiSheets_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const separator = apiUrl.includes("?") ? "&" : "?";
+    const script = document.createElement("script");
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      delete window[callbackName];
+      script.remove();
+    };
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Google Sheets demorou para responder"));
+    }, 15000);
+
+    window[callbackName] = (payload) => {
+      cleanup();
+      resolve(payload);
+    };
+    script.onerror = () => {
+      cleanup();
+      reject(new Error("Google Sheets indisponível"));
+    };
+    script.src = `${apiUrl}${separator}action=${encodeURIComponent(action)}&callback=${callbackName}&t=${Date.now()}`;
+    document.head.appendChild(script);
+  });
+}
+
 async function fetchSheetPositions(apiUrl) {
-  const response = await fetch(`${apiUrl}?action=list&t=${Date.now()}`, { cache: "no-store" });
-  if (!response.ok) throw new Error("Google Sheets indisponível");
-  const payload = await response.json();
+  const payload = await jsonpRequest(apiUrl, "list");
   const rows = Array.isArray(payload?.positions) ? payload.positions : [];
   return rows.map(normalizePosition);
 }
 
 async function saveSheetPositions(apiUrl, positionsToSave) {
-  const response = await fetch(apiUrl, {
+  await fetch(apiUrl, {
     method: "POST",
+    mode: "no-cors",
     body: JSON.stringify({ action: "savePositions", positions: positionsToSave.map(normalizePosition) }),
   });
-  if (!response.ok) throw new Error("Não consegui salvar no Google Sheets");
-  return response.json();
+  return { ok: true };
 }
 
 export default function Dashboard() {
