@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { hasSession, fetchPositionsFromDb, savePositionsToDb, saveQuotesToDb } from "./supabaseSync";
 
 const LOTE = 330;
 const STORAGE_KEY = "bgi-portfolio-positions-v1";
 const QUOTES_STORAGE_KEY = "bgi-portfolio-quotes-v1";
-const SHEETS_CONFIG_PATH = `${process.env.PUBLIC_URL || ""}/sheets-config.json`;
+const PAINEL_URL = "https://pablofaraujo.github.io/Confinex/painel.html";
 const B3_QUOTE_URL = "https://cotacao.b3.com.br/mds/api/v1/DailyFluctuationHistory";
 
 const BGI_INDICES = [
@@ -203,57 +204,13 @@ function loadStoredQuotes() {
   }
 }
 
-async function loadSheetsConfig() {
-  try {
-    const response = await fetch(`${SHEETS_CONFIG_PATH}?t=${Date.now()}`, { cache: "no-store" });
-    if (!response.ok) return { sheetsApiUrl: "" };
-    return response.json();
-  } catch {
-    return { sheetsApiUrl: "" };
-  }
-}
-
-function jsonpRequest(apiUrl, action) {
-  return new Promise((resolve, reject) => {
-    const callbackName = `bgiSheets_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const separator = apiUrl.includes("?") ? "&" : "?";
-    const script = document.createElement("script");
-    const cleanup = () => {
-      window.clearTimeout(timer);
-      delete window[callbackName];
-      script.remove();
-    };
-    const timer = window.setTimeout(() => {
-      cleanup();
-      reject(new Error("Google Sheets demorou para responder"));
-    }, 15000);
-
-    window[callbackName] = (payload) => {
-      cleanup();
-      resolve(payload);
-    };
-    script.onerror = () => {
-      cleanup();
-      reject(new Error("Google Sheets indisponível"));
-    };
-    script.src = `${apiUrl}${separator}action=${encodeURIComponent(action)}&callback=${callbackName}&t=${Date.now()}`;
-    document.head.appendChild(script);
-  });
-}
-
-async function fetchSheetPositions(apiUrl) {
-  const payload = await jsonpRequest(apiUrl, "list");
-  const rows = Array.isArray(payload?.positions) ? payload.positions : [];
+async function fetchDbPositions() {
+  const rows = await fetchPositionsFromDb();
   return rows.map(normalizePosition);
 }
 
-async function saveSheetPositions(apiUrl, positionsToSave) {
-  await fetch(apiUrl, {
-    method: "POST",
-    mode: "no-cors",
-    body: JSON.stringify({ action: "savePositions", positions: positionsToSave.map(normalizePosition) }),
-  });
-  return { ok: true };
+async function saveDbPositions(positionsToSave) {
+  return savePositionsToDb(positionsToSave.map(normalizePosition));
 }
 
 export default function Dashboard() {
@@ -264,8 +221,8 @@ export default function Dashboard() {
   const [marketQuotes, setMarketQuotes] = useState(loadStoredQuotes);
   const [quoteStatus, setQuoteStatus] = useState("Clique para atualizar quando quiser buscar o último arquivo de cotações.");
   const [quoteLoading, setQuoteLoading] = useState(false);
-  const [sheetsApiUrl, setSheetsApiUrl] = useState("");
-  const [syncStatus, setSyncStatus] = useState("Conectando base compartilhada...");
+  const [dbConnected, setDbConnected] = useState(false);
+  const [syncStatus, setSyncStatus] = useState("Conectando à base Confinex...");
   const [syncLoading, setSyncLoading] = useState(false);
   const hydratedRef = useRef(false);
   const saveTimerRef = useRef(null);
@@ -274,78 +231,78 @@ export default function Dashboard() {
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(positions));
-    if (!hydratedRef.current || !sheetsApiUrl) return;
+    if (!hydratedRef.current || !dbConnected) return;
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-    setSyncStatus("Salvando na base compartilhada...");
+    setSyncStatus("Salvando na base Confinex...");
     saveTimerRef.current = window.setTimeout(async () => {
       try {
-        await saveSheetPositions(sheetsApiUrl, positions);
-        setSyncStatus(`Sincronizado com Google Sheets em ${fmtDateTime(new Date().toISOString())}`);
-      } catch {
-        setSyncStatus("Não consegui salvar no Google Sheets agora. Mantive uma cópia neste aparelho.");
+        await saveDbPositions(positions);
+        setSyncStatus(`Sincronizado com a base Confinex em ${fmtDateTime(new Date().toISOString())}`);
+      } catch (err) {
+        setSyncStatus(`Não consegui salvar na base agora (${err?.message || "erro"}). Mantive uma cópia neste aparelho.`);
       }
-    }, 700);
+    }, 900);
     return () => {
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     };
-  }, [positions, sheetsApiUrl]);
+  }, [positions, dbConnected]);
 
   useEffect(() => {
     let cancelled = false;
-    async function hydrateFromSheets() {
-      const config = await loadSheetsConfig();
-      const apiUrl = String(config?.sheetsApiUrl || "").trim();
+    async function hydrateFromDb() {
+      const logged = await hasSession();
       if (cancelled) return;
-      setSheetsApiUrl(apiUrl);
-      if (!apiUrl) {
+      setDbConnected(logged);
+      if (!logged) {
         hydratedRef.current = true;
-        setSyncStatus("Base compartilhada ainda não configurada. Usando cópia deste aparelho.");
+        setSyncStatus("Sem login na base. Abra o Painel, faça login e recarregue esta página.");
         return;
       }
       setSyncLoading(true);
       try {
-        const remotePositions = await fetchSheetPositions(apiUrl);
+        const remotePositions = await fetchDbPositions();
         if (cancelled) return;
         if (remotePositions.length) {
           setPositions(remotePositions);
           window.localStorage.setItem(STORAGE_KEY, JSON.stringify(remotePositions));
-          setSyncStatus(`Carregado do Google Sheets em ${fmtDateTime(new Date().toISOString())}`);
+          setSyncStatus(`Carregado da base Confinex em ${fmtDateTime(new Date().toISOString())}`);
         } else {
-          setSyncStatus("Google Sheets vazio. Salvando as posições deste aparelho como base inicial...");
-          await saveSheetPositions(apiUrl, positions);
-          setSyncStatus(`Base inicial salva no Google Sheets em ${fmtDateTime(new Date().toISOString())}`);
+          setSyncStatus("Base vazia. Salvando as posições deste aparelho como base inicial...");
+          await saveDbPositions(positions);
+          setSyncStatus(`Base inicial salva no Confinex em ${fmtDateTime(new Date().toISOString())}`);
         }
-      } catch {
-        if (!cancelled) setSyncStatus("Não consegui consultar o Google Sheets agora. Usando a cópia deste aparelho.");
+      } catch (err) {
+        if (!cancelled) setSyncStatus(`Não consegui consultar a base agora (${err?.message || "erro"}). Usando a cópia deste aparelho.`);
       } finally {
         hydratedRef.current = true;
         if (!cancelled) setSyncLoading(false);
       }
     }
-    hydrateFromSheets();
+    hydrateFromDb();
     return () => {
       cancelled = true;
     };
   }, []);
 
   async function refreshPositionsFromSheets() {
-    if (!sheetsApiUrl) {
-      setSyncStatus("Base compartilhada ainda não configurada.");
+    if (!dbConnected) {
+      window.open(PAINEL_URL, "_blank");
+      setSyncStatus("Faça login no Painel e recarregue esta página.");
       return;
     }
     setSyncLoading(true);
-    setSyncStatus("Buscando posições no Google Sheets...");
+    setSyncStatus("Buscando posições na base Confinex...");
     try {
-      const remotePositions = await fetchSheetPositions(sheetsApiUrl);
+      const remotePositions = await fetchDbPositions();
       if (remotePositions.length) {
         setPositions(remotePositions);
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(remotePositions));
-        setSyncStatus(`Posições recarregadas do Google Sheets em ${fmtDateTime(new Date().toISOString())}`);
+        setSyncStatus(`Posições recarregadas da base em ${fmtDateTime(new Date().toISOString())}`);
       } else {
-        setSyncStatus("Google Sheets está vazio. Nada foi alterado.");
+        setSyncStatus("Base vazia. Nada foi alterado.");
       }
-    } catch {
-      setSyncStatus("Não consegui buscar no Google Sheets agora. Mantive a cópia deste aparelho.");
+    } catch (err) {
+      setSyncStatus(`Não consegui buscar na base agora (${err?.message || "erro"}).`);
     } finally {
       setSyncLoading(false);
     }
@@ -396,6 +353,7 @@ export default function Dashboard() {
       };
       setMarketQuotes(normalized);
       window.localStorage.setItem(QUOTES_STORAGE_KEY, JSON.stringify(normalized));
+      if (dbConnected) saveQuotesToDb(normalized.prices, normalized.source).catch(() => {});
       const fallbackContracts = quoteResponses.filter((quote) => quote.fallback).map((quote) => quote.contrato);
       setQuoteStatus(fallbackContracts.length
         ? `B3 atualizou ${updatedQuotes.length} contrato(s). Mantive último valor em ${fallbackContracts.join(", ")}.`
@@ -545,10 +503,10 @@ export default function Dashboard() {
             <div>
               <div style={{ fontSize: 10, letterSpacing: 1.8, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>B3 · BGI · Posições gravadas</div>
               <h1 style={{ fontSize: 22, margin: 0 }}>Boi Gordo — Portfólio</h1>
-              <div style={{ fontSize: 11, color: sheetsApiUrl ? "#0f766e" : "#94a3b8", marginTop: 5 }}>{syncStatus}</div>
+              <div style={{ fontSize: 11, color: dbConnected ? "#0f766e" : "#94a3b8", marginTop: 5 }}>{syncStatus}</div>
             </div>
           </div>
-          <button onClick={refreshPositionsFromSheets} disabled={syncLoading || !sheetsApiUrl} style={{ border: "1px solid #cbd5e1", background: "#fff", color: sheetsApiUrl ? "#334155" : "#94a3b8", borderRadius: 6, padding: "7px 9px", cursor: syncLoading || !sheetsApiUrl ? "not-allowed" : "pointer", fontSize: 12 }}>
+          <button onClick={refreshPositionsFromSheets} disabled={syncLoading} style={{ border: "1px solid #cbd5e1", background: "#fff", color: dbConnected ? "#334155" : "#94a3b8", borderRadius: 6, padding: "7px 9px", cursor: syncLoading ? "not-allowed" : "pointer", fontSize: 12 }}>
             {syncLoading ? "Sincronizando..." : "Sincronizar posições"}
           </button>
         </div>
