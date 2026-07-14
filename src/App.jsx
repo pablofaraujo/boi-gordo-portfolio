@@ -8,6 +8,7 @@ const PAINEL_URL = "https://pablofaraujo.github.io/Confinex/painel.html";
 const B3_QUOTE_URL = "https://cotacao.b3.com.br/mds/api/v1/DailyFluctuationHistory";
 
 const BGI_INDICES = [
+  { vencimento: "K26", mes: "Maio/26", contrato: "BGIK26", fechamento: 340 },
   { vencimento: "M26", mes: "Junho/26", contrato: "BGIM26", fechamento: 343.5 },
   { vencimento: "N26", mes: "Julho/26", contrato: "BGIN26", fechamento: 334.5 },
   { vencimento: "U26", mes: "Setembro/26", contrato: "BGIU26", fechamento: 337.85 },
@@ -15,12 +16,12 @@ const BGI_INDICES = [
 ];
 
 const DEFAULT_POSITIONS = [
-  { id: "m26-1", contrato: "BGIM26", mes: "Junho/26", lado: "Vendido", contratos: 6, entrada: 348.25, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
-  { id: "n26-1", contrato: "BGIN26", mes: "Julho/26", lado: "Vendido", contratos: 15, entrada: 346.04, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
-  { id: "u26-1", contrato: "BGIU26", mes: "Setembro/26", lado: "Comprado", contratos: 10, entrada: 347.26, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
-  { id: "u26-2", contrato: "BGIU26", mes: "Setembro/26", lado: "Vendido", contratos: 8, entrada: 346.95, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
-  { id: "v26-1", contrato: "BGIV26", mes: "Outubro/26", lado: "Vendido", contratos: 10, entrada: 353.3, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
-  { id: "v26-2", contrato: "BGIV26", mes: "Outubro/26", lado: "Vendido", contratos: 5, entrada: 355, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
+{ id: "m26-1", contrato: "BGIM26", mes: "Junho/26", lado: "Vendido", contratos: 6, entrada: 348.25, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
+{ id: "n26-1", contrato: "BGIN26", mes: "Julho/26", lado: "Vendido", contratos: 15, entrada: 346.04, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
+{ id: "u26-1", contrato: "BGIU26", mes: "Setembro/26", lado: "Comprado", contratos: 10, entrada: 347.26, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
+{ id: "u26-2", contrato: "BGIU26", mes: "Setembro/26", lado: "Vendido", contratos: 8, entrada: 346.95, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
+{ id: "v26-1", contrato: "BGIV26", mes: "Outubro/26", lado: "Vendido", contratos: 10, entrada: 353.3, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
+{ id: "v26-2", contrato: "BGIV26", mes: "Outubro/26", lado: "Vendido", contratos: 5, entrada: 355, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
 ];
 
 const emptyDraft = {
