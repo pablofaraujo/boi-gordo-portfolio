@@ -37,14 +37,16 @@ const corretoraTotal = toNumber(p.corretora) * cts * LOTE;
 const finpecTotal = toNumber(p.finpec) * cts * LOTE;
 let resultado = null;
 if (fechada && saida != null) {
-const bruto = p.lado === "Vendido" ? (entrada - saida) * cts * LOTE : (saida - entrada) * cts * LOTE;
+// Termo = preço fixado fora da B3, sem marcação a mercado: não tem
+// ganho/perda contra índice, só os custos (se houver) entram no resultado.
+const bruto = p.lado === "Termo" ? 0 : p.lado === "Vendido" ? (entrada - saida) * cts * LOTE : (saida - entrada) * cts * LOTE;
 resultado = Math.round((bruto - corretoraTotal - finpecTotal) * 100) / 100;
 }
 const especulacao = /espec/i.test(String(p.negocio || ""));
 return {
 termo: `bgp:${p.id}`,
 contrato: String(p.contrato || "").toUpperCase(),
-direcao: p.lado === "Comprado" ? "comprado" : "vendido",
+direcao: p.lado === "Comprado" ? "comprado" : p.lado === "Termo" ? "termo" : "vendido",
 categoria: especulacao ? "especulacao" : "hedge",
 contratos_qtd: cts,
 preco_entrada: entrada || null,
@@ -71,7 +73,7 @@ return {
 id: isBgp ? r.termo.slice(4) : `db-${r.id}`,
 contrato: r.contrato,
 mes: r.mes || mesDoContrato(r.contrato),
-lado: r.direcao === "comprado" ? "Comprado" : "Vendido",
+lado: r.direcao === "comprado" ? "Comprado" : r.direcao === "termo" ? "Termo" : "Vendido",
 contratos: cts,
 entrada: r.preco_entrada ?? "",
 saida: r.preco_saida ?? "",

@@ -91,13 +91,17 @@ function fmtShortDate(value) {
 function resultForPosition(position, prices) {
   const qty = toNumber(position.contratos);
   const entry = toNumber(position.entrada);
+  const isTermo = position.lado === "Termo";
   const explicitExit = position.saida !== "" && position.saida !== null && position.saida !== undefined;
-  const exit = explicitExit ? toNumber(position.saida) : prices[position.contrato] || 0;
-  const gross = position.lado === "Vendido" ? (entry - exit) * qty * LOTE : (exit - entry) * qty * LOTE;
+  // Termo = preço fixado com contraparte fora da B3. Não é marcado a mercado
+  // contra o índice: sem cotação de "atual" nem ganho/perda flutuante — só
+  // os custos (se houver) entram no resultado.
+  const exit = explicitExit ? toNumber(position.saida) : isTermo ? entry : prices[position.contrato] || 0;
+  const gross = isTermo ? 0 : position.lado === "Vendido" ? (entry - exit) * qty * LOTE : (exit - entry) * qty * LOTE;
   const brokerCost = toNumber(position.corretora) * qty * LOTE;
   const finpecCost = toNumber(position.finpec) * qty * LOTE;
   const costs = brokerCost + finpecCost;
-  return { exit, gross, costs, brokerCost, finpecCost, net: gross - costs, source: explicitExit ? "Saída" : "Fechamento B3" };
+  return { exit, gross, costs, brokerCost, finpecCost, net: gross - costs, source: isTermo ? "Termo (fixo)" : explicitExit ? "Saída" : "Fechamento B3" };
 }
 
 function normalizePosition(position) {
@@ -116,9 +120,9 @@ function outcomeLabel(value) {
 }
 
 function positionTone(lado) {
-  return lado === "Comprado"
-    ? { bg: "#e0f2fe", border: "#0284c7", color: "#075985", row: "#f7fbff" }
-    : { bg: "#fee2e2", border: "#dc2626", color: "#991b1b", row: "#fff8f8" };
+  if (lado === "Comprado") return { bg: "#e0f2fe", border: "#0284c7", color: "#075985", row: "#f7fbff" };
+  if (lado === "Termo") return { bg: "#fef3c7", border: "#d97706", color: "#92400e", row: "#fffbeb" };
+  return { bg: "#fee2e2", border: "#dc2626", color: "#991b1b", row: "#fff8f8" };
 }
 
 function parsePortfolioImport(text) {
@@ -373,8 +377,9 @@ export default function Dashboard() {
   const closedPositions = enriched.filter(isClosed);
   const [editingClosedIds, setEditingClosedIds] = useState([]);
   const editingClosedIdSet = useMemo(() => new Set(editingClosedIds), [editingClosedIds]);
-  const editablePositions = enriched.filter((position) => !isClosed(position) || editingClosedIdSet.has(position.id));
-  const visibleClosedPositions = closedPositions.filter((position) => !editingClosedIdSet.has(position.id));
+  // A edição de uma posição encerrada agora acontece na própria linha da
+  // tabela de Histórico (não move mais a posição para outra seção da tela —
+  // isso era confuso: parecia que a posição tinha "sumido").
   const openCount = openPositions.length;
   const openNet = openPositions.reduce((sum, position) => sum + position.net, 0);
   const totalNet = closedPositions.reduce((sum, position) => sum + position.net, 0);
@@ -608,10 +613,10 @@ export default function Dashboard() {
               </colgroup>
               <thead><tr><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th className="L">Datas</th><th className="L">Preços</th><th>Atual</th><th>Custos/@</th><th>Status</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th><th>Resultado</th><th></th></tr></thead>
               <tbody>
-                {editablePositions.length ? editablePositions.map((position) => (
+                {openPositions.length ? openPositions.map((position) => (
                   <tr key={position.id} style={positionRowStyle(position.lado)}>
                     <td className="L"><select value={position.contrato} onChange={(event) => updatePosition(position.id, "contrato", event.target.value)} style={cellInputStyle}>{BGI_INDICES.map((item) => <option key={item.contrato}>{item.contrato}</option>)}</select></td>
-                    <td className="L"><select className="row-position-select" value={position.lado} onChange={(event) => updatePosition(position.id, "lado", event.target.value)} style={{ ...cellInputStyle, ...positionBadge(position.lado), minWidth: "100%", borderRadius: 6, textAlign: "left" }}><option>Vendido</option><option>Comprado</option></select></td>
+                    <td className="L"><select className="row-position-select" value={position.lado} onChange={(event) => updatePosition(position.id, "lado", event.target.value)} style={{ ...cellInputStyle, ...positionBadge(position.lado), minWidth: "100%", borderRadius: 6, textAlign: "left" }}><option>Vendido</option><option>Comprado</option><option>Termo</option></select></td>
                     <td><input value={position.contratos} onChange={(event) => updatePosition(position.id, "contratos", event.target.value)} style={compactCellInputStyle} type="number" /></td>
                     <td>
                       <div className="stacked-cell">
@@ -637,15 +642,11 @@ export default function Dashboard() {
                     <td className="L"><textarea value={position.detalhes} onChange={(event) => updatePosition(position.id, "detalhes", event.target.value)} style={smallNotesStyle} placeholder="Detalhes" /></td>
                     <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtResult(position.net)}</td>
                     <td>
-                      {editingClosedIdSet.has(position.id) ? (
-                        <button onClick={() => finishEditingPosition(position.id)} style={{ border: "1px solid #bbf7d0", background: "#f0fdf4", color: "#15803d", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>Concluir</button>
-                      ) : (
-                        <button onClick={() => deletePosition(position.id)} style={{ border: "1px solid #fecaca", background: "#fff", color: "#b91c1c", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>Excluir</button>
-                      )}
+                      <button onClick={() => deletePosition(position.id)} style={{ border: "1px solid #fecaca", background: "#fff", color: "#b91c1c", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>Excluir</button>
                     </td>
                   </tr>
                 )) : (
-                  <tr><td className="L" colSpan="12" style={{ color: "#64748b" }}>Nenhuma posição aberta ou encerrada em edição. Use o botão Editar no histórico para corrigir uma posição finalizada.</td></tr>
+                  <tr><td className="L" colSpan="12" style={{ color: "#64748b" }}>Nenhuma posição em aberto no momento.</td></tr>
                 )}
               </tbody>
             </table>
@@ -685,23 +686,47 @@ export default function Dashboard() {
               </colgroup>
               <thead><tr><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th>Entrada</th><th>Saída</th><th>Data saída</th><th>Corretora</th><th>Finpec</th><th>Resultado</th><th>Ganho/Perda</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th><th></th></tr></thead>
               <tbody>
-                {visibleClosedPositions.length ? visibleClosedPositions.map((position) => (
-                  <tr key={`history-${position.id}`} style={positionRowStyle(position.lado)}>
-                    <td className="L" style={{ fontWeight: 700 }}>{position.contrato}</td>
-                    <td className="L"><span style={positionBadge(position.lado)}>{position.lado}</span></td>
-                    <td>{position.contratos}</td>
-                    <td>R$ {fmtPrice(position.entrada)}</td>
-                    <td>R$ {fmtPrice(position.saida)}</td>
-                    <td>{fmtShortDate(position.dataSaida)}</td>
-                    <td>{fmtCurrency(position.brokerCost)}</td>
-                    <td>{fmtCurrency(position.finpecCost)}</td>
-                    <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtResult(position.net)}</td>
-                    <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{outcomeLabel(position.net)}</td>
-                    <td className="L">{position.negocio || "-"}</td>
-                    <td className="L">{position.detalhes || "-"}</td>
-                    <td><button onClick={() => editClosedPosition(position.id)} style={{ border: "1px solid #cbd5e1", background: "#fff", color: "#334155", borderRadius: 6, padding: "5px 7px", cursor: "pointer", fontSize: 11 }}>Editar</button></td>
-                  </tr>
-                )) : (
+                {closedPositions.length ? closedPositions.map((position) => {
+                  const editing = editingClosedIdSet.has(position.id);
+                  return (
+                    <tr key={`history-${position.id}`} style={positionRowStyle(position.lado)}>
+                      <td className="L" style={{ fontWeight: 700 }}>
+                        {editing ? (
+                          <select value={position.contrato} onChange={(event) => updatePosition(position.id, "contrato", event.target.value)} style={cellInputStyle}>
+                            {BGI_INDICES.map((item) => <option key={item.contrato}>{item.contrato}</option>)}
+                          </select>
+                        ) : position.contrato}
+                      </td>
+                      <td className="L">
+                        {editing ? (
+                          <select value={position.lado} onChange={(event) => updatePosition(position.id, "lado", event.target.value)} style={{ ...cellInputStyle, ...positionBadge(position.lado), minWidth: "100%", borderRadius: 6, textAlign: "left" }}>
+                            <option>Vendido</option><option>Comprado</option><option>Termo</option>
+                          </select>
+                        ) : <span style={positionBadge(position.lado)}>{position.lado}</span>}
+                      </td>
+                      <td>{editing ? <input value={position.contratos} onChange={(event) => updatePosition(position.id, "contratos", event.target.value)} style={compactCellInputStyle} type="number" /> : position.contratos}</td>
+                      <td>{editing ? <input value={position.entrada} onChange={(event) => updatePosition(position.id, "entrada", event.target.value)} style={cellInputStyle} type="number" step="0.01" /> : `R$ ${fmtPrice(position.entrada)}`}</td>
+                      <td>{editing ? <input value={position.saida} onChange={(event) => updatePosition(position.id, "saida", event.target.value)} style={cellInputStyle} type="number" step="0.01" /> : `R$ ${fmtPrice(position.saida)}`}</td>
+                      <td>{editing ? <input value={position.dataSaida} onChange={(event) => updatePosition(position.id, "dataSaida", event.target.value)} style={compactCellInputStyle} type="date" /> : fmtShortDate(position.dataSaida)}</td>
+                      <td>{editing ? <input value={position.corretora} onChange={(event) => updatePosition(position.id, "corretora", event.target.value)} style={compactCellInputStyle} type="number" step="0.01" placeholder="R$/@" /> : fmtCurrency(position.brokerCost)}</td>
+                      <td>{editing ? <input value={position.finpec} onChange={(event) => updatePosition(position.id, "finpec", event.target.value)} style={compactCellInputStyle} type="number" step="0.01" placeholder="R$/@" /> : fmtCurrency(position.finpecCost)}</td>
+                      <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtResult(position.net)}</td>
+                      <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{outcomeLabel(position.net)}</td>
+                      <td className="L">{editing ? <textarea value={position.negocio} onChange={(event) => updatePosition(position.id, "negocio", event.target.value)} style={smallNotesStyle} placeholder="CF-26-009: 3 contratos" /> : (position.negocio || "-")}</td>
+                      <td className="L">{editing ? <textarea value={position.detalhes} onChange={(event) => updatePosition(position.id, "detalhes", event.target.value)} style={smallNotesStyle} placeholder="Detalhes" /> : (position.detalhes || "-")}</td>
+                      <td>
+                        {editing ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            <button onClick={() => finishEditingPosition(position.id)} style={{ border: "1px solid #bbf7d0", background: "#f0fdf4", color: "#15803d", borderRadius: 6, padding: "5px 7px", cursor: "pointer", fontSize: 11 }}>Concluir</button>
+                            <button onClick={() => deletePosition(position.id)} style={{ border: "1px solid #fecaca", background: "#fff", color: "#b91c1c", borderRadius: 6, padding: "5px 7px", cursor: "pointer", fontSize: 11 }}>Excluir</button>
+                          </div>
+                        ) : (
+                          <button onClick={() => editClosedPosition(position.id)} style={{ border: "1px solid #cbd5e1", background: "#fff", color: "#334155", borderRadius: 6, padding: "5px 7px", cursor: "pointer", fontSize: 11 }}>Editar</button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                }) : (
                   <tr><td className="L" colSpan="13" style={{ color: "#64748b" }}>Preencha a saída ou marque a posição como fechada para aparecer no histórico.</td></tr>
                 )}
               </tbody>
@@ -727,7 +752,7 @@ export default function Dashboard() {
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Nova posição</h2>
           <div className="new-position-grid">
             <select value={draft.contrato} onChange={(event) => updateDraft("contrato", event.target.value)} style={inputStyle}>{BGI_INDICES.map((item) => <option key={item.contrato}>{item.contrato}</option>)}</select>
-            <select value={draft.lado} onChange={(event) => updateDraft("lado", event.target.value)} style={inputStyle}><option>Vendido</option><option>Comprado</option></select>
+            <select value={draft.lado} onChange={(event) => updateDraft("lado", event.target.value)} style={inputStyle}><option>Vendido</option><option>Comprado</option><option>Termo</option></select>
             <input value={draft.contratos} onChange={(event) => updateDraft("contratos", event.target.value)} style={inputStyle} type="number" min="1" placeholder="Contratos" />
             <input value={draft.dataEntrada} onChange={(event) => updateDraft("dataEntrada", event.target.value)} style={inputStyle} type="date" title="Data da entrada" />
             <input value={draft.entrada} onChange={(event) => updateDraft("entrada", event.target.value)} style={inputStyle} type="number" step="0.01" placeholder="Entrada" />
