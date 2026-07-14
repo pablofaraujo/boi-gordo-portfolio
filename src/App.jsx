@@ -439,12 +439,6 @@ export default function Dashboard() {
     }
   }
 
-  function resetPositions() {
-    const confirmed = window.confirm("Isso apaga as posições gravadas neste navegador e restaura a amostra. Deseja continuar?");
-    if (!confirmed) return;
-    setPositions(DEFAULT_POSITIONS);
-  }
-
   const pnlColor = (value) => (value >= 0 ? "#15803d" : "#b91c1c");
   const inputStyle = { width: "100%", border: "1px solid #d1d5db", borderRadius: 6, padding: "7px 8px", font: "inherit", fontSize: 12, background: "#fff" };
   const cellInputStyle = { ...inputStyle, padding: "5px 6px" };
@@ -747,12 +741,6 @@ export default function Dashboard() {
             <button onClick={addPosition} style={{ border: 0, background: "#2563eb", color: "#fff", borderRadius: 6, padding: "8px 10px", cursor: "pointer", gridColumn: "1 / -1", justifySelf: "end", minWidth: 128 }}>Gravar</button>
           </div>
         </section>
-
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
-          <button onClick={resetPositions} style={{ border: "1px solid #e2e8f0", background: "transparent", color: "#94a3b8", borderRadius: 6, padding: "4px 7px", cursor: "pointer", fontSize: 10 }}>
-            Restaurar amostra
-          </button>
-        </div>
       </div>
     </div>
   );
