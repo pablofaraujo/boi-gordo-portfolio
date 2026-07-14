@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { hasSession, fetchPositionsFromDb, savePositionsToDb, saveQuotesToDb } from "./supabaseSync";
+import { hasSession, fetchPositionsFromDb, savePositionsToDb, saveQuotesToDb, deletePositionFromDb } from "./supabaseSync";
 
 const LOTE = 330;
 const STORAGE_KEY = "bgi-portfolio-positions-v1";
@@ -428,6 +428,15 @@ export default function Dashboard() {
   function deletePosition(id) {
     setPositions((current) => current.filter((position) => position.id !== id));
     setEditingClosedIds((current) => current.filter((editingId) => editingId !== id));
+    // Exclusão explícita e imediata no banco — não depende do auto-save nem
+    // de diffing do array local (isso é o que causava perda de dados quando
+    // o estado local estava desatualizado). Se a posição nunca chegou a ser
+    // sincronizada, deletePositionFromDb simplesmente não encontra nada.
+    if (dbConnected) {
+      deletePositionFromDb(`bgp:${id}`).catch((err) => {
+        setSyncStatus(`Não consegui excluir na base agora (${err?.message || "erro"}). Ao recarregar a posição pode voltar.`);
+      });
+    }
   }
 
   function resetPositions() {
