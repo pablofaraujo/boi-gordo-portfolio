@@ -15,6 +15,44 @@ const BGI_INDICES = [
   { vencimento: "V26", mes: "Outubro/26", contrato: "BGIV26", fechamento: 345.8 },
 ];
 
+// Código de vencimento por mês (padrão B3/BGI). Usado para montar o contrato
+// (mês + ano) livremente ao gravar posição — não fica mais restrito à lista
+// curada acima, que serve só para cotação ao vivo.
+const MES_CODIGOS = [
+  { code: "F", label: "Janeiro" },
+  { code: "G", label: "Fevereiro" },
+  { code: "H", label: "Março" },
+  { code: "J", label: "Abril" },
+  { code: "K", label: "Maio" },
+  { code: "M", label: "Junho" },
+  { code: "N", label: "Julho" },
+  { code: "Q", label: "Agosto" },
+  { code: "U", label: "Setembro" },
+  { code: "V", label: "Outubro" },
+  { code: "X", label: "Novembro" },
+  { code: "Z", label: "Dezembro" },
+];
+
+function anosDisponiveis() {
+  const atual = new Date().getFullYear() % 100;
+  return Array.from({ length: 6 }, (_, i) => String(atual - 1 + i).padStart(2, "0"));
+}
+
+function parseContrato(contrato) {
+  const m = /^BGI([FGHJKMNQUVXZ])(\d{2})$/.exec(String(contrato || "").toUpperCase());
+  return m ? { codigo: m[1], ano: m[2] } : { codigo: "M", ano: String(new Date().getFullYear() % 100).padStart(2, "0") };
+}
+
+function buildContrato(codigo, ano) {
+  return `BGI${codigo}${ano}`;
+}
+
+function mesLabelDoContrato(contrato) {
+  const { codigo, ano } = parseContrato(contrato);
+  const nome = MES_CODIGOS.find((m) => m.code === codigo)?.label || "";
+  return nome ? `${nome}/${ano}` : "";
+}
+
 const DEFAULT_POSITIONS = [
 { id: "m26-1", contrato: "BGIM26", mes: "Junho/26", lado: "Vendido", contratos: 6, entrada: 348.25, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
 { id: "n26-1", contrato: "BGIN26", mes: "Julho/26", lado: "Vendido", contratos: 15, entrada: 346.04, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
@@ -96,12 +134,17 @@ function resultForPosition(position, prices) {
   // Termo = preço fixado com contraparte fora da B3. Não é marcado a mercado
   // contra o índice: sem cotação de "atual" nem ganho/perda flutuante — só
   // os custos (se houver) entram no resultado.
-  const exit = explicitExit ? toNumber(position.saida) : isTermo ? entry : prices[position.contrato] || 0;
-  const gross = isTermo ? 0 : position.lado === "Vendido" ? (entry - exit) * qty * LOTE : (exit - entry) * qty * LOTE;
+  // Contratos fora da lista de cotação ativa (BGI_INDICES) não têm preço de
+  // referência — em vez de comparar contra 0 (o que geraria um prejuízo
+  // falso enorme), tratamos como "sem cotação disponível".
+  const hasQuote = !isTermo && !!prices[position.contrato];
+  const exit = explicitExit ? toNumber(position.saida) : isTermo ? entry : hasQuote ? prices[position.contrato] : null;
+  const gross = isTermo || exit == null ? 0 : position.lado === "Vendido" ? (entry - exit) * qty * LOTE : (exit - entry) * qty * LOTE;
   const brokerCost = toNumber(position.corretora) * qty * LOTE;
   const finpecCost = toNumber(position.finpec) * qty * LOTE;
   const costs = brokerCost + finpecCost;
-  return { exit, gross, costs, brokerCost, finpecCost, net: gross - costs, source: isTermo ? "Termo (fixo)" : explicitExit ? "Saída" : "Fechamento B3" };
+  const source = isTermo ? "Termo (fixo)" : explicitExit ? "Saída" : hasQuote ? "Fechamento B3" : "Sem cotação";
+  return { exit, gross, costs, brokerCost, finpecCost, net: gross - costs, source };
 }
 
 function normalizePosition(position) {
@@ -388,8 +431,7 @@ export default function Dashboard() {
   const closedFinpecCosts = closedPositions.reduce((sum, position) => sum + position.finpecCost, 0);
 
   function updateDraft(field, value) {
-    const selected = field === "contrato" ? BGI_INDICES.find((item) => item.contrato === value) : null;
-    setDraft((current) => ({ ...current, [field]: value, ...(selected ? { mes: selected.mes } : {}) }));
+    setDraft((current) => ({ ...current, [field]: value, ...(field === "contrato" ? { mes: mesLabelDoContrato(value) } : {}) }));
   }
 
   function addPosition() {
@@ -411,8 +453,7 @@ export default function Dashboard() {
   function updatePosition(id, field, value) {
     setPositions((current) => current.map((position) => {
       if (position.id !== id) return position;
-      const selected = field === "contrato" ? BGI_INDICES.find((item) => item.contrato === value) : null;
-      const updated = { ...normalizePosition(position), [field]: value, ...(selected ? { mes: selected.mes } : {}) };
+      const updated = { ...normalizePosition(position), [field]: value, ...(field === "contrato" ? { mes: mesLabelDoContrato(value) } : {}) };
       if (field === "saida" && value !== "") updated.status = "Fechada";
       if (field === "status" && value === "Aberta") {
         updated.saida = "";
@@ -598,7 +639,7 @@ export default function Dashboard() {
           <div style={{ overflowX: "auto" }}>
             <table className="edit-table">
               <colgroup>
-                <col style={{ width: 96 }} />
+                <col style={{ width: 128 }} />
                 <col style={{ width: 106 }} />
                 <col style={{ width: 52 }} />
                 <col style={{ width: 132 }} />
@@ -615,7 +656,16 @@ export default function Dashboard() {
               <tbody>
                 {openPositions.length ? openPositions.map((position) => (
                   <tr key={position.id} style={positionRowStyle(position.lado)}>
-                    <td className="L"><select value={position.contrato} onChange={(event) => updatePosition(position.id, "contrato", event.target.value)} style={cellInputStyle}>{BGI_INDICES.map((item) => <option key={item.contrato}>{item.contrato}</option>)}</select></td>
+                    <td className="L">
+                      <div className="stacked-cell">
+                        <select value={parseContrato(position.contrato).codigo} onChange={(event) => updatePosition(position.id, "contrato", buildContrato(event.target.value, parseContrato(position.contrato).ano))} style={compactCellInputStyle}>
+                          {MES_CODIGOS.map((m) => <option key={m.code} value={m.code}>{m.label}</option>)}
+                        </select>
+                        <select value={parseContrato(position.contrato).ano} onChange={(event) => updatePosition(position.id, "contrato", buildContrato(parseContrato(position.contrato).codigo, event.target.value))} style={compactCellInputStyle}>
+                          {anosDisponiveis().map((a) => <option key={a} value={a}>20{a}</option>)}
+                        </select>
+                      </div>
+                    </td>
                     <td className="L"><select className="row-position-select" value={position.lado} onChange={(event) => updatePosition(position.id, "lado", event.target.value)} style={{ ...cellInputStyle, ...positionBadge(position.lado), minWidth: "100%", borderRadius: 6, textAlign: "left" }}><option>Vendido</option><option>Comprado</option><option>Termo</option></select></td>
                     <td><input value={position.contratos} onChange={(event) => updatePosition(position.id, "contratos", event.target.value)} style={compactCellInputStyle} type="number" /></td>
                     <td>
@@ -670,7 +720,7 @@ export default function Dashboard() {
           <div style={{ overflowX: "auto" }}>
             <table className="history-table">
               <colgroup>
-                <col style={{ width: 88 }} />
+                <col style={{ width: 128 }} />
                 <col style={{ width: 98 }} />
                 <col style={{ width: 52 }} />
                 <col style={{ width: 92 }} />
@@ -692,9 +742,14 @@ export default function Dashboard() {
                     <tr key={`history-${position.id}`} style={positionRowStyle(position.lado)}>
                       <td className="L" style={{ fontWeight: 700 }}>
                         {editing ? (
-                          <select value={position.contrato} onChange={(event) => updatePosition(position.id, "contrato", event.target.value)} style={cellInputStyle}>
-                            {BGI_INDICES.map((item) => <option key={item.contrato}>{item.contrato}</option>)}
-                          </select>
+                          <div className="stacked-cell">
+                            <select value={parseContrato(position.contrato).codigo} onChange={(event) => updatePosition(position.id, "contrato", buildContrato(event.target.value, parseContrato(position.contrato).ano))} style={compactCellInputStyle}>
+                              {MES_CODIGOS.map((m) => <option key={m.code} value={m.code}>{m.label}</option>)}
+                            </select>
+                            <select value={parseContrato(position.contrato).ano} onChange={(event) => updatePosition(position.id, "contrato", buildContrato(parseContrato(position.contrato).codigo, event.target.value))} style={compactCellInputStyle}>
+                              {anosDisponiveis().map((a) => <option key={a} value={a}>20{a}</option>)}
+                            </select>
+                          </div>
                         ) : position.contrato}
                       </td>
                       <td className="L">
@@ -751,7 +806,12 @@ export default function Dashboard() {
         <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14, marginTop: 16 }}>
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Nova posição</h2>
           <div className="new-position-grid">
-            <select value={draft.contrato} onChange={(event) => updateDraft("contrato", event.target.value)} style={inputStyle}>{BGI_INDICES.map((item) => <option key={item.contrato}>{item.contrato}</option>)}</select>
+            <select value={parseContrato(draft.contrato).codigo} onChange={(event) => updateDraft("contrato", buildContrato(event.target.value, parseContrato(draft.contrato).ano))} style={inputStyle} title="Mês de vencimento">
+              {MES_CODIGOS.map((m) => <option key={m.code} value={m.code}>{m.label} ({m.code})</option>)}
+            </select>
+            <select value={parseContrato(draft.contrato).ano} onChange={(event) => updateDraft("contrato", buildContrato(parseContrato(draft.contrato).codigo, event.target.value))} style={inputStyle} title="Ano">
+              {anosDisponiveis().map((a) => <option key={a} value={a}>20{a}</option>)}
+            </select>
             <select value={draft.lado} onChange={(event) => updateDraft("lado", event.target.value)} style={inputStyle}><option>Vendido</option><option>Comprado</option><option>Termo</option></select>
             <input value={draft.contratos} onChange={(event) => updateDraft("contratos", event.target.value)} style={inputStyle} type="number" min="1" placeholder="Contratos" />
             <input value={draft.dataEntrada} onChange={(event) => updateDraft("dataEntrada", event.target.value)} style={inputStyle} type="date" title="Data da entrada" />
