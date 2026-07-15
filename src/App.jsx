@@ -153,6 +153,9 @@ function normalizePosition(position) {
 }
 
 function isClosed(position) {
+  // Termo não fecha por ter um valor em "saída" (não existe preço de saída
+  // separado num termo) — só o status explícito decide.
+  if (position.lado === "Termo") return position.status === "Fechada";
   return position.status === "Fechada" || (position.saida !== "" && position.saida !== null && position.saida !== undefined);
 }
 
@@ -454,7 +457,10 @@ export default function Dashboard() {
     setPositions((current) => current.map((position) => {
       if (position.id !== id) return position;
       const updated = { ...normalizePosition(position), [field]: value, ...(field === "contrato" ? { mes: mesLabelDoContrato(value) } : {}) };
-      if (field === "saida" && value !== "") updated.status = "Fechada";
+      // Termo não tem "saída" no sentido de B3 (preço fixo único até a
+      // entrega) — preencher esse campo não deve fechar a posição sozinho.
+      // Só o dropdown de Status explícito encerra um Termo.
+      if (field === "saida" && value !== "" && updated.lado !== "Termo") updated.status = "Fechada";
       if (field === "status" && value === "Aberta") {
         updated.saida = "";
         updated.dataSaida = "";

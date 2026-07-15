@@ -29,7 +29,9 @@ return m ? `${MES_POR_LETRA[m[1]]}/${m[2]}` : "";
 }
 
 function appToRow(p) {
-const fechada = p.status === "Fechada" || (p.saida !== "" && p.saida !== null && p.saida !== undefined);
+// Termo não fecha por ter um valor em "saída" (não existe preço de saída
+// separado num termo, é um preço fixo único) — só o status explícito decide.
+const fechada = p.lado === "Termo" ? p.status === "Fechada" : (p.status === "Fechada" || (p.saida !== "" && p.saida !== null && p.saida !== undefined));
 const cts = toNumber(p.contratos);
 const entrada = toNumber(p.entrada);
 const saida = p.saida === "" || p.saida == null ? null : toNumber(p.saida);
