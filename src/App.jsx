@@ -7,17 +7,8 @@ const QUOTES_STORAGE_KEY = "bgi-portfolio-quotes-v1";
 const PAINEL_URL = "https://pablofaraujo.github.io/Confinex/painel.html";
 const B3_QUOTE_URL = "https://cotacao.b3.com.br/mds/api/v1/DailyFluctuationHistory";
 
-const BGI_INDICES = [
-  { vencimento: "K26", mes: "Maio/26", contrato: "BGIK26", fechamento: 340 },
-  { vencimento: "M26", mes: "Junho/26", contrato: "BGIM26", fechamento: 343.5 },
-  { vencimento: "N26", mes: "Julho/26", contrato: "BGIN26", fechamento: 334.5 },
-  { vencimento: "U26", mes: "Setembro/26", contrato: "BGIU26", fechamento: 337.85 },
-  { vencimento: "V26", mes: "Outubro/26", contrato: "BGIV26", fechamento: 345.8 },
-];
-
 // Código de vencimento por mês (padrão B3/BGI). Usado para montar o contrato
-// (mês + ano) livremente ao gravar posição — não fica mais restrito à lista
-// curada acima, que serve só para cotação ao vivo.
+// (mês + ano) livremente ao gravar posição.
 const MES_CODIGOS = [
   { code: "F", label: "Janeiro" },
   { code: "G", label: "Fevereiro" },
@@ -32,6 +23,42 @@ const MES_CODIGOS = [
   { code: "X", label: "Novembro" },
   { code: "Z", label: "Dezembro" },
 ];
+
+// Cotações base (fallback), só usadas até a B3 responder ao vivo em
+// refreshQuotes(). Não precisam ser exatas — servem de placeholder inicial.
+const FALLBACK_FECHAMENTO = {
+  N26: 334.5,
+  Q26: 336.2,
+  U26: 337.85,
+  V26: 345.8,
+  X26: 350.0,
+  Z26: 354.0,
+  F27: 358.0,
+  G27: 361.0,
+  H27: 364.0,
+};
+
+// Janela rolante de contratos cotados: mês atual até 8 meses à frente (9
+// contratos), gerada a partir da data — não precisa mais editar esta lista
+// manualmente todo mês para acompanhar o calendário (antes era um array
+// fixo que ficava defasado / com meses pulados até alguém adicionar à mão).
+function buildBgiIndices(janelaMeses = 9) {
+  const hoje = new Date();
+  return Array.from({ length: janelaMeses }, (_, i) => {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth() + i, 1);
+    const ano = String(d.getFullYear() % 100).padStart(2, "0");
+    const { code, label } = MES_CODIGOS[d.getMonth()];
+    const vencimento = `${code}${ano}`;
+    return {
+      vencimento,
+      mes: `${label}/${ano}`,
+      contrato: `BGI${vencimento}`,
+      fechamento: FALLBACK_FECHAMENTO[vencimento] ?? 340,
+    };
+  });
+}
+
+const BGI_INDICES = buildBgiIndices();
 
 function anosDisponiveis() {
   const atual = new Date().getFullYear() % 100;
@@ -63,8 +90,8 @@ const DEFAULT_POSITIONS = [
 ];
 
 const emptyDraft = {
-  contrato: "BGIM26",
-  mes: "Junho/26",
+  contrato: BGI_INDICES[0].contrato,
+  mes: BGI_INDICES[0].mes,
   lado: "Vendido",
   contratos: 1,
   entrada: "",
