@@ -595,7 +595,11 @@ export default function Dashboard() {
   }
 
   function deletePosition(id) {
+    const position = positions.find((item) => item.id === id);
+    if (!position) return;
+    if (!window.confirm(`Excluir a posição ${position.contrato} (${fmtQuantity(position.contratos)} cts)? Esta ação não pode ser desfeita.`)) return;
     setPositions((current) => current.filter((position) => position.id !== id));
+    setEditingOpenIds((current) => current.filter((editingId) => editingId !== id));
     setEditingClosedIds((current) => current.filter((editingId) => editingId !== id));
     // Exclusão explícita e imediata no banco — não depende do auto-save nem
     // de diffing do array local (isso é o que causava perda de dados quando
@@ -748,7 +752,12 @@ export default function Dashboard() {
                     <td style={{ color: position.hasMarketResult ? pnlColor(position.net) : "#b45309", fontWeight: 700 }}>{position.hasMarketResult ? fmtResult(position.net) : "Sem cotação"}</td>
                     <td className="L">{position.negocio || "-"}</td>
                     <td className="L">{position.detalhes || "-"}</td>
-                    <td><button onClick={() => editOpenPosition(position.id)} style={{ border: "1px solid #cbd5e1", background: editingOpenIdSet.has(position.id) ? "#eff6ff" : "#fff", color: "#1d4ed8", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>{editingOpenIdSet.has(position.id) ? "Editando" : "Editar"}</button></td>
+                    <td>
+                      <div style={{ display: "flex", gap: 5, justifyContent: "flex-end" }}>
+                        <button onClick={() => editOpenPosition(position.id)} style={{ border: "1px solid #cbd5e1", background: editingOpenIdSet.has(position.id) ? "#eff6ff" : "#fff", color: "#1d4ed8", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>{editingOpenIdSet.has(position.id) ? "Editando" : "Editar"}</button>
+                        <button onClick={() => deletePosition(position.id)} style={{ border: "1px solid #fecaca", background: "#fff", color: "#b91c1c", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>Excluir</button>
+                      </div>
+                    </td>
                   </tr>
                 )) : (
                   <tr><td className="L" colSpan="10" style={{ color: "#64748b" }}>Nenhuma posição em aberto.</td></tr>
