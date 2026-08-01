@@ -294,7 +294,6 @@ async function fetchTradingViewQuotes(contratos) {
   const response = await fetch(TRADINGVIEW_QUOTE_URL, {
     method: "POST",
     cache: "no-store",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       symbols: { tickers, query: { types: [] } },
       columns: ["name", "close", "update_mode"],
