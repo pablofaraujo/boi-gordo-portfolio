@@ -136,7 +136,12 @@ return { prices, updatedAt, source };
 // explícita e imediata por deletePositionFromDb(), chamada só quando o
 // usuário clica em "Excluir".
 export async function savePositionsToDb(positions) {
-const rows = positions.map(appToRow);
+// O estado local pode conter a mesma posição duas vezes após importar ou
+// recuperar uma aba antiga. O Postgres rejeita chaves repetidas dentro do
+// mesmo UPSERT; a versão mais recente da posição deve prevalecer.
+const rowsPorTermo = new Map();
+positions.map(appToRow).forEach((row) => rowsPorTermo.set(row.termo, row));
+const rows = [...rowsPorTermo.values()];
 const { data: saved, error } = await db
 .from("posicoes_hedge")
 .upsert(rows, { onConflict: "termo" })
