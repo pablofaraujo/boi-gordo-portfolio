@@ -89,6 +89,30 @@ detalhes: r.detalhes || (isBgp ? "" : (r.obs || "")),
 };
 }
 
+function chavePosicaoOperacional(r) {
+return [
+String(r.contrato || "").toUpperCase(),
+String(r.direcao || "").toLowerCase(),
+toNumber(r.contratos_qtd),
+toNumber(r.preco_entrada),
+String(r.status || "").toLowerCase(),
+].join("|");
+}
+
+function deduplicarPosicoesLidas(rows) {
+// Durante a migração, a mesma posição pode existir como registro legado
+// do Confinex e como registro gerenciado pelo portfólio (termo "bgp:").
+// Quando os dados operacionais coincidem, o registro bgp é a fonte editável
+// e deve aparecer uma única vez. Registros distintos do mesmo contrato são
+// preservados porque quantidade, entrada, direção ou status diferem.
+const gerenciadas = rows.filter((row) => String(row.termo || "").startsWith("bgp:"));
+const chavesGerenciadas = new Set(gerenciadas.map(chavePosicaoOperacional));
+return rows.filter((row) => (
+String(row.termo || "").startsWith("bgp:")
+|| !chavesGerenciadas.has(chavePosicaoOperacional(row))
+));
+}
+
 // ---------- leitura ----------
 export async function fetchPositionsFromDb() {
 const { data, error } = await db
@@ -97,7 +121,7 @@ const { data, error } = await db
 .or("termo.like.bgp:%,and(status.in.(aberta,rolada),origem.is.null)")
 .order("created_at", { ascending: true });
 if (error) throw new Error(error.message);
-return (data || []).map(rowToApp);
+return deduplicarPosicoesLidas(data || []).map(rowToApp);
 }
 
 export async function fetchLatestQuotesFromDb() {
