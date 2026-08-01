@@ -133,6 +133,13 @@ function fmtResult(value) {
   }).format(value || 0);
 }
 
+function fmtQuantity(value) {
+  return new Intl.NumberFormat("pt-BR", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+  }).format(value || 0);
+}
+
 function fmtPrice(value) {
   if (value === "" || value === null || value === undefined) return "-";
   return Number(value).toFixed(2).replace(".", ",");
@@ -517,10 +524,11 @@ export default function Dashboard() {
   // A edição de uma posição encerrada agora acontece na própria linha da
   // tabela de Histórico (não move mais a posição para outra seção da tela —
   // isso era confuso: parecia que a posição tinha "sumido").
-  const openCount = openPositions.length;
+  const openContracts = openPositions.reduce((sum, position) => sum + Math.abs(toNumber(position.contratos)), 0);
+  const openArrobas = openContracts * LOTE;
   const openNet = openPositions.reduce((sum, position) => sum + position.net, 0);
-  const totalNet = closedPositions.reduce((sum, position) => sum + position.net, 0);
   const closedNet = closedPositions.reduce((sum, position) => sum + position.net, 0);
+  const totalNet = openNet + closedNet;
   const closedBrokerCosts = closedPositions.reduce((sum, position) => sum + position.brokerCost, 0);
   const closedFinpecCosts = closedPositions.reduce((sum, position) => sum + position.finpecCost, 0);
 
@@ -678,8 +686,8 @@ export default function Dashboard() {
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 16 }}>
           {[
+            ["Exposição em aberto", `${fmtQuantity(openContracts)} cts (${fmtQuantity(openArrobas)} @)`, "#475569"],
             ["Resultado parcial em aberto", fmtResult(openNet), pnlColor(openNet)],
-            ["Posição em aberto", `${openCount}`, "#475569"],
             ["Resultado líquido", fmtResult(totalNet), pnlColor(totalNet)],
           ].map(([label, value, color]) => (
             <div key={label} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14 }}>
