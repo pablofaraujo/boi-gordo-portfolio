@@ -100,6 +100,31 @@ if (error) throw new Error(error.message);
 return (data || []).map(rowToApp);
 }
 
+export async function fetchLatestQuotesFromDb() {
+const { data, error } = await db
+.from("cotacoes_bgi")
+.select("contrato, data, hora, preco, fonte, created_at")
+.eq("referencia_fisica", false)
+.order("data", { ascending: false })
+.order("created_at", { ascending: false })
+.limit(200);
+if (error) throw new Error(error.message);
+
+const prices = {};
+let updatedAt = "";
+let source = "Base Confinex";
+for (const row of data || []) {
+const contrato = String(row.contrato || "").toUpperCase();
+if (!contrato || prices[contrato] || toNumber(row.preco) <= 0) continue;
+prices[contrato] = toNumber(row.preco);
+if (!updatedAt) {
+updatedAt = row.created_at || `${row.data}T${row.hora || "00:00:00"}`;
+source = row.fonte || source;
+}
+}
+return { prices, updatedAt, source };
+}
+
 // ---------- gravação ----------
 // IMPORTANTE: esta função é chamada em auto-save (debounced) a cada alteração
 // de qualquer posição na tela. Ela só faz UPSERT (insere/atualiza) das
@@ -164,7 +189,14 @@ export async function saveQuotesToDb(prices, source) {
 const hoje = new Date().toISOString().slice(0, 10);
 const rows = Object.entries(prices)
 .filter(([, preco]) => toNumber(preco) > 0)
-.map(([contrato, preco]) => ({ contrato, data: hoje, preco: toNumber(preco), fonte: source === "B3" ? "b3" : "manual", referencia_fisica: false }));
+.map(([contrato, preco]) => ({
+contrato,
+data: hoje,
+preco: toNumber(preco),
+fonte: source === "B3" || String(source || "").includes("TradingView") ? "b3" : "manual",
+referencia_fisica: false,
+}));
 if (!rows.length) return;
-await db.from("cotacoes_bgi").insert(rows);
+const { error } = await db.from("cotacoes_bgi").insert(rows);
+if (error) throw new Error(error.message);
 }

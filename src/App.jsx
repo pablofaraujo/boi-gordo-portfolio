@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { hasSession, fetchPositionsFromDb, savePositionsToDb, saveQuotesToDb, deletePositionFromDb } from "./supabaseSync";
+import { hasSession, fetchPositionsFromDb, fetchLatestQuotesFromDb, savePositionsToDb, saveQuotesToDb, deletePositionFromDb } from "./supabaseSync";
 
 const LOTE = 330;
 const STORAGE_KEY = "bgi-portfolio-positions-v1";
 const QUOTES_STORAGE_KEY = "bgi-portfolio-quotes-v1";
 const PAINEL_URL = "https://pablofaraujo.github.io/Confinex/painel.html";
 const B3_QUOTE_URL = "https://cotacao.b3.com.br/mds/api/v1/DailyFluctuationHistory";
+const TRADINGVIEW_QUOTE_URL = "https://scanner.tradingview.com/futures/scan";
 
 // Código de vencimento por mês (padrão B3/BGI). Usado para montar o contrato
 // (mês + ano) livremente ao gravar posição.
@@ -282,6 +283,36 @@ function loadStoredQuotes() {
   }
 }
 
+function contratoTradingView(contrato) {
+  const match = /^BGI([FGHJKMNQUVXZ])(\d{2})$/.exec(String(contrato || "").toUpperCase());
+  return match ? `BMFBOVESPA:BGI${match[1]}20${match[2]}` : "";
+}
+
+async function fetchTradingViewQuotes(contratos) {
+  const tickers = contratos.map(contratoTradingView).filter(Boolean);
+  if (!tickers.length) return [];
+  const response = await fetch(TRADINGVIEW_QUOTE_URL, {
+    method: "POST",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      symbols: { tickers, query: { types: [] } },
+      columns: ["name", "close", "update_mode"],
+    }),
+  });
+  if (!response.ok) throw new Error("TradingView indisponível");
+  const payload = await response.json();
+  return (payload?.data || []).map((item) => {
+    const nome = String(item?.d?.[0] || "");
+    const match = /^BGI([FGHJKMNQUVXZ])20(\d{2})$/.exec(nome);
+    return {
+      contrato: match ? `BGI${match[1]}${match[2]}` : "",
+      fechamento: toNumber(item?.d?.[1]),
+      fonte: "TradingView (B3 com 15 min de atraso)",
+    };
+  }).filter((item) => item.contrato && item.fechamento > 0);
+}
+
 async function fetchDbPositions() {
   const rows = await fetchPositionsFromDb();
   return rows.map(normalizePosition);
@@ -304,8 +335,7 @@ export default function Dashboard() {
   const [syncLoading, setSyncLoading] = useState(false);
   const hydratedRef = useRef(false);
   const saveTimerRef = useRef(null);
-  const fallbackPrices = useMemo(closingByContract, []);
-  const prices = useMemo(() => ({ ...fallbackPrices, ...marketQuotes.prices }), [fallbackPrices, marketQuotes]);
+  const prices = useMemo(() => ({ ...marketQuotes.prices }), [marketQuotes]);
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(positions));
@@ -338,6 +368,16 @@ export default function Dashboard() {
       }
       setSyncLoading(true);
       try {
+        try {
+          const remoteQuotes = await fetchLatestQuotesFromDb();
+          if (!cancelled && Object.keys(remoteQuotes.prices).length) {
+            setMarketQuotes(remoteQuotes);
+            window.localStorage.setItem(QUOTES_STORAGE_KEY, JSON.stringify(remoteQuotes));
+          }
+        } catch {
+          // A indisponibilidade isolada das cotações não pode impedir a
+          // sincronização das posições do portfólio.
+        }
         const remotePositions = await fetchDbPositions();
         if (cancelled) return;
         if (remotePositions.length) {
@@ -392,10 +432,16 @@ export default function Dashboard() {
     }
   }, [marketQuotes.updatedAt]);
 
+  useEffect(() => {
+    if (dbConnected) refreshQuotes();
+    // A conexão só muda quando a sessão inicial é resolvida. Uma atualização
+    // automática por abertura mantém tela e Supabase atuais sem depender do clique.
+  }, [dbConnected]);
+
   async function refreshQuotes() {
     setQuoteLoading(true);
     setQuoteStatus("Buscando cotações na B3...");
-    const previousPrices = { ...fallbackPrices, ...marketQuotes.prices };
+    const previousPrices = { ...marketQuotes.prices };
 
     const quoteResponses = await Promise.all(BGI_INDICES.map(async (item) => {
       try {
@@ -422,16 +468,33 @@ export default function Dashboard() {
     }));
 
     try {
-      const updatedQuotes = quoteResponses.filter((quote) => !quote.fallback && quote.fechamento);
+      let updatedQuotes = quoteResponses.filter((quote) => !quote.fallback && quote.fechamento);
+      const ausentes = quoteResponses.filter((quote) => quote.fallback).map((quote) => quote.contrato);
+      if (ausentes.length) {
+        const alternativas = await fetchTradingViewQuotes(ausentes);
+        const porContrato = Object.fromEntries(alternativas.map((quote) => [quote.contrato, quote]));
+        quoteResponses.forEach((quote, index) => {
+          if (quote.fallback && porContrato[quote.contrato]) quoteResponses[index] = porContrato[quote.contrato];
+        });
+        updatedQuotes = quoteResponses.filter((quote) => !quote.fallback && quote.fechamento);
+      }
       if (!updatedQuotes.length) throw new Error("Sem cotação atualizada na B3");
       const normalized = {
         prices: quoteResponses.reduce((acc, quote) => ({ ...acc, [quote.contrato]: quote.fechamento }), {}),
         updatedAt: new Date().toISOString(),
-        source: "B3",
+        source: updatedQuotes.some((quote) => String(quote.fonte || "").includes("TradingView"))
+          ? "TradingView (B3 com 15 min de atraso)"
+          : "B3",
       };
       setMarketQuotes(normalized);
       window.localStorage.setItem(QUOTES_STORAGE_KEY, JSON.stringify(normalized));
-      if (dbConnected) saveQuotesToDb(normalized.prices, normalized.source).catch(() => {});
+      if (dbConnected) {
+        try {
+          await saveQuotesToDb(normalized.prices, normalized.source);
+        } catch (err) {
+          setSyncStatus(`Cotações atualizadas na tela, mas não salvas na base (${err?.message || "erro"}).`);
+        }
+      }
       const fallbackContracts = quoteResponses.filter((quote) => quote.fallback).map((quote) => quote.contrato);
       setQuoteStatus(fallbackContracts.length
         ? `B3 atualizou ${updatedQuotes.length} contrato(s). Mantive último valor em ${fallbackContracts.join(", ")}.`
