@@ -172,7 +172,7 @@ function resultForPosition(position, prices) {
   const finpecCost = toNumber(position.finpec) * qty * LOTE;
   const costs = brokerCost + finpecCost;
   const source = isTermo ? "Termo (fixo)" : explicitExit ? "Saída" : hasQuote ? "Fechamento B3" : "Sem cotação";
-  return { exit, gross, costs, brokerCost, finpecCost, net: gross - costs, source };
+  return { exit, gross, costs, brokerCost, finpecCost, net: gross - costs, source, hasMarketResult: isTermo || explicitExit || hasQuote };
 }
 
 function normalizePosition(position) {
@@ -511,7 +511,9 @@ export default function Dashboard() {
   const openPositions = enriched.filter((position) => !isClosed(position));
   const closedPositions = enriched.filter(isClosed);
   const [editingClosedIds, setEditingClosedIds] = useState([]);
+  const [editingOpenIds, setEditingOpenIds] = useState([]);
   const editingClosedIdSet = useMemo(() => new Set(editingClosedIds), [editingClosedIds]);
+  const editingOpenIdSet = useMemo(() => new Set(editingOpenIds), [editingOpenIds]);
   // A edição de uma posição encerrada agora acontece na própria linha da
   // tabela de Histórico (não move mais a posição para outra seção da tela —
   // isso era confuso: parecia que a posição tinha "sumido").
@@ -560,6 +562,24 @@ export default function Dashboard() {
 
   function editClosedPosition(id) {
     setEditingClosedIds((current) => (current.includes(id) ? current : [...current, id]));
+  }
+
+  function editOpenPosition(id) {
+    setEditingOpenIds((current) => (current.includes(id) ? current : [...current, id]));
+  }
+
+  async function finishEditingOpenPosition(id) {
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    setSyncStatus("Salvando alteração na base Confinex...");
+    try {
+      if (dbConnected) await saveDbPositions(positions);
+      setEditingOpenIds((current) => current.filter((editingId) => editingId !== id));
+      setSyncStatus(dbConnected
+        ? `Alteração salva na base Confinex em ${fmtDateTime(new Date().toISOString())}`
+        : "Alteração salva neste aparelho. Faça login no Painel para sincronizar com a base.");
+    } catch (err) {
+      setSyncStatus(`Não consegui salvar a alteração (${err?.message || "erro"}). Mantive a edição neste aparelho.`);
+    }
   }
 
   function finishEditingPosition(id) {
@@ -707,7 +727,7 @@ export default function Dashboard() {
                 <col style={{ width: 146 }} />
                 <col style={{ width: 120 }} />
               </colgroup>
-              <thead><tr><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th>Entrada</th><th>Atual</th><th>Custos</th><th>Resultado</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th></tr></thead>
+              <thead><tr><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th>Entrada</th><th>Atual</th><th>Custos</th><th>Resultado em aberto</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th><th></th></tr></thead>
               <tbody>
                 {openPositions.length ? openPositions.map((position) => (
                   <tr key={`open-${position.id}`} style={positionRowStyle(position.lado)}>
@@ -717,12 +737,13 @@ export default function Dashboard() {
                     <td>R$ {fmtPrice(position.entrada)}</td>
                     <td>R$ {fmtPrice(position.exit)}</td>
                     <td>{fmtCurrency(position.costs)}</td>
-                    <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtResult(position.net)}</td>
+                    <td style={{ color: position.hasMarketResult ? pnlColor(position.net) : "#b45309", fontWeight: 700 }}>{position.hasMarketResult ? fmtResult(position.net) : "Sem cotação"}</td>
                     <td className="L">{position.negocio || "-"}</td>
                     <td className="L">{position.detalhes || "-"}</td>
+                    <td><button onClick={() => editOpenPosition(position.id)} style={{ border: "1px solid #cbd5e1", background: editingOpenIdSet.has(position.id) ? "#eff6ff" : "#fff", color: "#1d4ed8", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>{editingOpenIdSet.has(position.id) ? "Editando" : "Editar"}</button></td>
                   </tr>
                 )) : (
-                  <tr><td className="L" colSpan="9" style={{ color: "#64748b" }}>Nenhuma posição em aberto.</td></tr>
+                  <tr><td className="L" colSpan="10" style={{ color: "#64748b" }}>Nenhuma posição em aberto.</td></tr>
                 )}
               </tbody>
             </table>
@@ -730,7 +751,8 @@ export default function Dashboard() {
         </section>
 
         <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14 }}>
-          <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Posições gravadas</h2>
+          <h2 style={{ fontSize: 15, margin: "0 0 4px" }}>Editar posições abertas</h2>
+          <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>Clique em Editar na tabela acima. Altere os campos e use Salvar alteração para gravar imediatamente.</div>
           <div style={{ overflowX: "auto" }}>
             <table className="edit-table">
               <colgroup>
@@ -749,7 +771,7 @@ export default function Dashboard() {
               </colgroup>
               <thead><tr><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th className="L">Datas</th><th className="L">Preços</th><th>Atual</th><th>Custos/@</th><th>Status</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th><th>Resultado</th><th></th></tr></thead>
               <tbody>
-                {openPositions.length ? openPositions.map((position) => (
+                {openPositions.some((position) => editingOpenIdSet.has(position.id)) ? openPositions.filter((position) => editingOpenIdSet.has(position.id)).map((position) => (
                   <tr key={position.id} style={positionRowStyle(position.lado)}>
                     <td className="L">
                       <div className="stacked-cell">
@@ -785,13 +807,16 @@ export default function Dashboard() {
                     <td><select value={position.status} onChange={(event) => updatePosition(position.id, "status", event.target.value)} style={cellInputStyle}><option>Aberta</option><option>Fechada</option></select></td>
                     <td className="L"><textarea value={position.negocio} onChange={(event) => updatePosition(position.id, "negocio", event.target.value)} style={smallNotesStyle} placeholder="CF-26-009: 3 contratos" /></td>
                     <td className="L"><textarea value={position.detalhes} onChange={(event) => updatePosition(position.id, "detalhes", event.target.value)} style={smallNotesStyle} placeholder="Detalhes" /></td>
-                    <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtResult(position.net)}</td>
+                    <td style={{ color: position.hasMarketResult ? pnlColor(position.net) : "#b45309", fontWeight: 700 }}>{position.hasMarketResult ? fmtResult(position.net) : "Sem cotação"}</td>
                     <td>
-                      <button onClick={() => deletePosition(position.id)} style={{ border: "1px solid #fecaca", background: "#fff", color: "#b91c1c", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>Excluir</button>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                        <button onClick={() => finishEditingOpenPosition(position.id)} style={{ border: "1px solid #bbf7d0", background: "#f0fdf4", color: "#15803d", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>Salvar alteração</button>
+                        <button onClick={() => deletePosition(position.id)} style={{ border: "1px solid #fecaca", background: "#fff", color: "#b91c1c", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>Excluir</button>
+                      </div>
                     </td>
                   </tr>
                 )) : (
-                  <tr><td className="L" colSpan="12" style={{ color: "#64748b" }}>Nenhuma posição em aberto no momento.</td></tr>
+                  <tr><td className="L" colSpan="12" style={{ color: "#64748b" }}>Clique em Editar em uma posição aberta para corrigir seus dados.</td></tr>
                 )}
               </tbody>
             </table>
