@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { hasSession, fetchPositionsFromDb, fetchLatestQuotesFromDb, savePositionsToDb, saveQuotesToDb, deletePositionFromDb } from "./supabaseSync";
+import { criarControleGravacao } from "./controleGravacao";
 
 const LOTE = 330;
 const STORAGE_KEY = "bgi-portfolio-positions-v1";
@@ -341,10 +342,12 @@ export default function Dashboard() {
   const [syncLoading, setSyncLoading] = useState(false);
   const hydratedRef = useRef(false);
   const saveTimerRef = useRef(null);
+  const controleGravacaoRef = useRef(criarControleGravacao());
   const prices = useMemo(() => ({ ...marketQuotes.prices }), [marketQuotes]);
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(positions));
+    if (controleGravacaoRef.current.consumirBloqueioDeGravacao()) return;
     if (!hydratedRef.current || !dbConnected) return;
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     setSyncStatus("Salvando na base Confinex...");
@@ -387,6 +390,7 @@ export default function Dashboard() {
         const remotePositions = await fetchDbPositions();
         if (cancelled) return;
         if (remotePositions.length) {
+          controleGravacaoRef.current.marcarRecargaSomenteLeitura();
           setPositions(remotePositions);
           window.localStorage.setItem(STORAGE_KEY, JSON.stringify(remotePositions));
           setSyncStatus(`Carregado da base Confinex em ${fmtDateTime(new Date().toISOString())}`);
@@ -408,7 +412,7 @@ export default function Dashboard() {
     };
   }, []);
 
-  async function refreshPositionsFromSheets() {
+  async function recarregarPosicoesDaBase() {
     if (!dbConnected) {
       window.open(PAINEL_URL, "_blank");
       setSyncStatus("Faça login no Painel e recarregue esta página.");
@@ -419,6 +423,7 @@ export default function Dashboard() {
     try {
       const remotePositions = await fetchDbPositions();
       if (remotePositions.length) {
+        controleGravacaoRef.current.marcarRecargaSomenteLeitura();
         setPositions(remotePositions);
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(remotePositions));
         setSyncStatus(`Posições recarregadas da base em ${fmtDateTime(new Date().toISOString())}`);
@@ -683,8 +688,8 @@ export default function Dashboard() {
               <div style={{ fontSize: 11, color: dbConnected ? "#0f766e" : "#94a3b8", marginTop: 5 }}>{syncStatus}</div>
             </div>
           </div>
-          <button onClick={refreshPositionsFromSheets} disabled={syncLoading} style={{ border: "1px solid #cbd5e1", background: "#fff", color: dbConnected ? "#334155" : "#94a3b8", borderRadius: 6, padding: "7px 9px", cursor: syncLoading ? "not-allowed" : "pointer", fontSize: 12 }}>
-            {syncLoading ? "Sincronizando..." : "Sincronizar posições"}
+          <button onClick={recarregarPosicoesDaBase} disabled={syncLoading} style={{ border: "1px solid #cbd5e1", background: "#fff", color: dbConnected ? "#334155" : "#94a3b8", borderRadius: 6, padding: "7px 9px", cursor: syncLoading ? "not-allowed" : "pointer", fontSize: 12 }}>
+            {syncLoading ? "Recarregando..." : "Recarregar da base"}
           </button>
         </div>
 
