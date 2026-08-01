@@ -611,7 +611,9 @@ export default function Dashboard() {
     // o estado local estava desatualizado). Se a posição nunca chegou a ser
     // sincronizada, deletePositionFromDb simplesmente não encontra nada.
     if (dbConnected) {
-      deletePositionFromDb(`bgp:${id}`).catch((err) => {
+      deletePositionFromDb(position.registroPersistidoId
+        ? { id: position.registroPersistidoId }
+        : { termo: `bgp:${id}` }).catch((err) => {
         setSyncStatus(`Não consegui excluir na base agora (${err?.message || "erro"}). Ao recarregar a posição pode voltar.`);
       });
     }

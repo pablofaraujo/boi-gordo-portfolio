@@ -28,7 +28,7 @@ const m = /^BGI([FGHJKMNQUVXZ])(\d{2})$/.exec(String(contrato || "").toUpperCase
 return m ? `${MES_POR_LETRA[m[1]]}/${m[2]}` : "";
 }
 
-function appToRow(p) {
+export function appToRow(p) {
 // Termo não fecha por ter um valor em "saída" (não existe preço de saída
 // separado num termo, é um preço fixo único) — só o status explícito decide.
 const fechada = p.lado === "Termo" ? p.status === "Fechada" : (p.status === "Fechada" || (p.saida !== "" && p.saida !== null && p.saida !== undefined));
@@ -46,7 +46,9 @@ resultado = Math.round((bruto - corretoraTotal - finpecTotal) * 100) / 100;
 }
 const especulacao = /espec/i.test(String(p.negocio || ""));
 return {
-termo: `bgp:${p.id}`,
+termo: Object.prototype.hasOwnProperty.call(p, "termoPersistido")
+? p.termoPersistido
+: `bgp:${p.id}`,
 contrato: String(p.contrato || "").toUpperCase(),
 direcao: p.lado === "Comprado" ? "comprado" : p.lado === "Termo" ? "termo" : "vendido",
 categoria: especulacao ? "especulacao" : "hedge",
@@ -67,12 +69,14 @@ origem: "bgi-portfolio",
 };
 }
 
-function rowToApp(r) {
+export function rowToApp(r) {
 const isBgp = String(r.termo || "").startsWith("bgp:");
 const cts = Number(r.contratos_qtd) || 0;
 const perArroba = (total) => (cts ? Math.round(((Number(total) || 0) / (cts * LOTE)) * 100) / 100 : 0);
 return {
 id: isBgp ? r.termo.slice(4) : `db-${r.id}`,
+registroPersistidoId: r.id || null,
+termoPersistido: r.termo ?? null,
 contrato: r.contrato,
 mes: r.mes || mesDoContrato(r.contrato),
 lado: r.direcao === "comprado" ? "Comprado" : r.direcao === "termo" ? "Termo" : "Vendido",
@@ -86,6 +90,28 @@ finpec: perArroba(r.custo_finpec),
 status: r.status === "aberta" ? "Aberta" : "Fechada",
 negocio: r.negocio_rateio || "",
 detalhes: r.detalhes || (isBgp ? "" : (r.obs || "")),
+};
+}
+
+export function separarPosicoesParaPersistencia(positions) {
+const atualizacoesPorId = new Map();
+const gravacoesPorTermo = new Map();
+
+positions.forEach((position) => {
+const row = appToRow(position);
+if (position.registroPersistidoId && !row.termo) {
+atualizacoesPorId.set(position.registroPersistidoId, {
+id: position.registroPersistidoId,
+row,
+});
+return;
+}
+gravacoesPorTermo.set(row.termo, row);
+});
+
+return {
+atualizacoesPorId: [...atualizacoesPorId.values()],
+gravacoesPorTermo: [...gravacoesPorTermo.values()],
 };
 }
 
@@ -163,14 +189,31 @@ export async function savePositionsToDb(positions) {
 // O estado local pode conter a mesma posição duas vezes após importar ou
 // recuperar uma aba antiga. O Postgres rejeita chaves repetidas dentro do
 // mesmo UPSERT; a versão mais recente da posição deve prevalecer.
-const rowsPorTermo = new Map();
-positions.map(appToRow).forEach((row) => rowsPorTermo.set(row.termo, row));
-const rows = [...rowsPorTermo.values()];
-const { data: saved, error } = await db
+const { atualizacoesPorId, gravacoesPorTermo } = separarPosicoesParaPersistencia(positions);
+const saved = [];
+
+if (gravacoesPorTermo.length) {
+const { data, error } = await db
 .from("posicoes_hedge")
-.upsert(rows, { onConflict: "termo" })
+.upsert(gravacoesPorTermo, { onConflict: "termo" })
 .select("id, termo, status, resultado_realizado, negocio_rateio, contratos_qtd");
 if (error) throw new Error(error.message);
+saved.push(...(data || []));
+}
+
+// Registros antigos sem termo não podem passar por UPSERT: NULL não entra no
+// conflito único e produziria uma nova linha. A identidade original do banco
+// é preservada e a alteração ocorre pelo ID já existente.
+for (const atualizacao of atualizacoesPorId) {
+const { data, error } = await db
+.from("posicoes_hedge")
+.update(atualizacao.row)
+.eq("id", atualizacao.id)
+.select("id, termo, status, resultado_realizado, negocio_rateio, contratos_qtd")
+.maybeSingle();
+if (error) throw new Error(error.message);
+if (data) saved.push(data);
+}
 
 // alocações a partir do campo "Negócio / Rateio" (ex.: "CF-26-009: 3; CF-26-010: 2")
 for (const row of saved || []) {
@@ -204,8 +247,12 @@ return { ok: true };
 // ---------- exclusão ----------
 // Apaga uma única posição (e suas alocações) pelo termo, de forma explícita.
 // Chamada apenas pelo botão "Excluir" — nunca inferida por diffing.
-export async function deletePositionFromDb(termo) {
-const { data: existing } = await db.from("posicoes_hedge").select("id").eq("termo", termo).maybeSingle();
+export async function deletePositionFromDb(referencia) {
+let consulta = db.from("posicoes_hedge").select("id");
+consulta = referencia?.id
+? consulta.eq("id", referencia.id)
+: consulta.eq("termo", referencia?.termo || referencia);
+const { data: existing } = await consulta.maybeSingle();
 if (!existing) return { deleted: false };
 await db.from("alocacoes_hedge").delete().eq("posicao_id", existing.id);
 const { error } = await db.from("posicoes_hedge").delete().eq("id", existing.id);
