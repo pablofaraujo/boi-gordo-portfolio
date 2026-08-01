@@ -20,6 +20,32 @@ const parsed = Number(String(value).replace(",", "."));
 return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function codigoLote(texto) {
+const partes = String(texto || "").match(/CF\s*-\s*(\d{2})\s*-\s*(\d{3})/i);
+return partes ? `CF-${partes[1]}-${partes[2]}` : "";
+}
+
+export function extrairRateiosNegocio(texto, contratosTotal) {
+const fonte = String(texto || "");
+const regex = /(CF\s*-\s*\d{2}\s*-\s*\d{3})([\s\S]*?)(?=CF\s*-\s*\d{2}\s*-\s*\d{3}|$)/gi;
+const rateios = [];
+let trecho;
+
+while ((trecho = regex.exec(fonte)) !== null) {
+const quantidade = trecho[2].match(/^\s*(?::|[-–—])?\s*(\d+(?:[.,]\d+)?)\s*(?:cts?|contratos?)?\b/i);
+rateios.push({
+codigo: codigoLote(trecho[1]),
+cts: quantidade ? toNumber(quantidade[1]) : null,
+});
+}
+
+if (rateios.length === 1 && rateios[0].cts === null) {
+rateios[0].cts = toNumber(contratosTotal);
+}
+
+return rateios.filter((item) => item.codigo && item.cts !== null && item.cts >= 0);
+}
+
 // ---------- mapeamento formato do app <-> posicoes_hedge ----------
 const MES_POR_LETRA = { F: "Janeiro", G: "Fevereiro", H: "Março", J: "Abril", K: "Maio", M: "Junho", N: "Julho", Q: "Agosto", U: "Setembro", V: "Outubro", X: "Novembro", Z: "Dezembro" };
 
@@ -219,18 +245,13 @@ if (data) saved.push(data);
 for (const row of saved || []) {
 await db.from("alocacoes_hedge").delete().eq("posicao_id", row.id);
 const texto = row.negocio_rateio || "";
-const matches = [...texto.matchAll(/(CF-\d{2}-\d{3})\s*:?\s*(\d+(?:[.,]\d+)?)?/gi)];
-if (!matches.length) continue;
-const { data: ops } = await db.from("operacoes").select("id, codigo").in("codigo", matches.map((m) => m[1].toUpperCase()));
+const rateios = extrairRateiosNegocio(texto, row.contratos_qtd);
+if (!rateios.length) continue;
+const { data: ops } = await db.from("operacoes").select("id, codigo").in("codigo", rateios.map((item) => item.codigo));
 const opPorCodigo = Object.fromEntries((ops || []).map((o) => [o.codigo, o.id]));
-const partes = matches
-.map((m) => ({ codigo: m[1].toUpperCase(), cts: m[2] ? toNumber(m[2]) : null }))
+const partes = rateios
 .filter((p) => opPorCodigo[p.codigo]);
 if (!partes.length) continue;
-const semQtd = partes.filter((p) => p.cts == null);
-const totalDeclarado = partes.reduce((s, p) => s + (p.cts || 0), 0);
-const restante = Math.max(Number(row.contratos_qtd) - totalDeclarado, 0);
-semQtd.forEach((p) => { p.cts = semQtd.length ? restante / semQtd.length : 0; });
 const totalFinal = partes.reduce((s, p) => s + (p.cts || 0), 0) || 1;
 await db.from("alocacoes_hedge").insert(partes.map((p) => ({
 posicao_id: row.id,

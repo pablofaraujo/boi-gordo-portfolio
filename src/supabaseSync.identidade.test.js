@@ -1,5 +1,6 @@
 import {
   appToRow,
+  extrairRateiosNegocio,
   rowToApp,
   separarPosicoesParaPersistencia,
 } from "./supabaseSync";
@@ -15,6 +16,27 @@ const LEGADO = {
 };
 
 describe("identidade persistente das posições", () => {
+  test("interpreta rateio escrito com espaços, hífens e cts", () => {
+    expect(extrairRateiosNegocio(
+      "CF-26-009 5,2 cts CF-26-010 - 8,2 cts CF-26- 011 - 10,3",
+      24,
+    )).toEqual([
+      { codigo: "CF-26-009", cts: 5.2 },
+      { codigo: "CF-26-010", cts: 8.2 },
+      { codigo: "CF-26-011", cts: 10.3 },
+    ]);
+  });
+
+  test("usa todos os contratos quando há somente um lote sem quantidade", () => {
+    expect(extrairRateiosNegocio("CF-26-013", 4)).toEqual([
+      { codigo: "CF-26-013", cts: 4 },
+    ]);
+  });
+
+  test("não inventa divisão quando vários lotes estão sem quantidade", () => {
+    expect(extrairRateiosNegocio("CF-26-009; CF-26-010", 24)).toEqual([]);
+  });
+
   test("uma posição antiga conserva o ID e o termo original", () => {
     const position = rowToApp(LEGADO);
     const row = appToRow(position);
