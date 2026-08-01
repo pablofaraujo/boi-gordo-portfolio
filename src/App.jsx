@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { hasSession, fetchPositionsFromDb, fetchLatestQuotesFromDb, savePositionsToDb, saveQuotesToDb, deletePositionFromDb } from "./supabaseSync";
+import { hasSession, fetchPositionsFromDb, fetchHedgeExposureFromDb, fetchLatestQuotesFromDb, savePositionsToDb, saveQuotesToDb, deletePositionFromDb } from "./supabaseSync";
 import { criarControleGravacao } from "./controleGravacao";
 import { ordenarPosicoesPorVencimento } from "./ordenacaoPosicoes";
 
@@ -341,6 +341,7 @@ export default function Dashboard() {
   const [dbConnected, setDbConnected] = useState(false);
   const [syncStatus, setSyncStatus] = useState("Conectando à base Confinex...");
   const [syncLoading, setSyncLoading] = useState(false);
+  const [hedgeExposure, setHedgeExposure] = useState(null);
   const hydratedRef = useRef(false);
   const saveTimerRef = useRef(null);
   const controleGravacaoRef = useRef(criarControleGravacao());
@@ -388,6 +389,13 @@ export default function Dashboard() {
           // A indisponibilidade isolada das cotações não pode impedir a
           // sincronização das posições do portfólio.
         }
+        try {
+          const remoteExposure = await fetchHedgeExposureFromDb();
+          if (!cancelled) setHedgeExposure(remoteExposure);
+        } catch {
+          // As posições continuam disponíveis mesmo se a view de exposição
+          // estiver temporariamente indisponível.
+        }
         const remotePositions = await fetchDbPositions();
         if (cancelled) return;
         if (remotePositions.length) {
@@ -422,7 +430,11 @@ export default function Dashboard() {
     setSyncLoading(true);
     setSyncStatus("Buscando posições na base Confinex...");
     try {
-      const remotePositions = await fetchDbPositions();
+      const [remotePositions, remoteExposure] = await Promise.all([
+        fetchDbPositions(),
+        fetchHedgeExposureFromDb(),
+      ]);
+      setHedgeExposure(remoteExposure);
       if (remotePositions.length) {
         controleGravacaoRef.current.marcarRecargaSomenteLeitura();
         setPositions(remotePositions);
@@ -532,6 +544,10 @@ export default function Dashboard() {
   // isso era confuso: parecia que a posição tinha "sumido").
   const openContracts = openPositions.reduce((sum, position) => sum + Math.abs(toNumber(position.contratos)), 0);
   const openArrobas = openContracts * LOTE;
+  const necessaryContracts = hedgeExposure?.necessarios ?? 0;
+  const hedgeOpenContracts = hedgeExposure?.abertos ?? 0;
+  const uncoveredContracts = hedgeExposure?.descobertos ?? 0;
+  const uncoveredArrobas = uncoveredContracts * LOTE;
   const openNet = openPositions.reduce((sum, position) => sum + position.net, 0);
   const closedNet = closedPositions.reduce((sum, position) => sum + position.net, 0);
   const totalNet = openNet + closedNet;
@@ -705,7 +721,10 @@ export default function Dashboard() {
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 16 }}>
           {[
-            ["Exposição em aberto", `${fmtQuantity(openContracts)} cts (${fmtQuantity(openArrobas)} @)`, "#475569"],
+            ["Contratos necessários", hedgeExposure ? `${fmtQuantity(necessaryContracts)} cts` : "—", "#475569"],
+            ["Vendidos em aberto", hedgeExposure ? `${fmtQuantity(hedgeOpenContracts)} cts` : "—", "#0f766e"],
+            ["Descoberto", hedgeExposure ? `${fmtQuantity(uncoveredContracts)} cts (${fmtQuantity(uncoveredArrobas)} @)` : "—", uncoveredContracts > 0 ? "#b91c1c" : "#15803d"],
+            ["Posições abertas B3", `${fmtQuantity(openContracts)} cts (${fmtQuantity(openArrobas)} @)`, "#475569"],
             ["Resultado parcial em aberto", fmtResult(openNet), pnlColor(openNet)],
             ["Resultado líquido", fmtResult(totalNet), pnlColor(totalNet)],
           ].map(([label, value, color]) => (

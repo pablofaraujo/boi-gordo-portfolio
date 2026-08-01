@@ -176,6 +176,24 @@ if (error) throw new Error(error.message);
 return deduplicarPosicoesLidas(data || []).map(rowToApp);
 }
 
+export async function fetchHedgeExposureFromDb() {
+const { data, error } = await db
+.from("v_exposicao_hedge")
+.select("codigo, cts_necessarios, cts_abertos");
+if (error) throw new Error(error.message);
+
+// Boi Balança (BB-) já é comprado com a venda definida e não representa
+// exposição física que precise ser coberta por uma nova venda de BGI.
+const confinamentos = (data || []).filter((row) => !String(row.codigo || "").toUpperCase().startsWith("BB-"));
+const necessarios = confinamentos.reduce((sum, row) => sum + toNumber(row.cts_necessarios), 0);
+const abertos = confinamentos.reduce((sum, row) => sum + toNumber(row.cts_abertos), 0);
+return {
+necessarios,
+abertos,
+descobertos: Math.max(necessarios - abertos, 0),
+};
+}
+
 export async function fetchLatestQuotesFromDb() {
 const { data, error } = await db
 .from("cotacoes_bgi")
