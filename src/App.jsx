@@ -700,6 +700,11 @@ export default function Dashboard() {
           text-align: center;
           vertical-align: middle;
         }
+        .history-table thead th,
+        .history-table thead th.L {
+          text-align: center;
+          vertical-align: middle;
+        }
         td.details-cell {
           font-size: 10px;
           line-height: 1.35;
