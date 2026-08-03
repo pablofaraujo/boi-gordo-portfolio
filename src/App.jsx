@@ -670,11 +670,20 @@ export default function Dashboard() {
       <style>{`
         * { box-sizing: border-box; }
         table { width: 100%; border-collapse: collapse; }
-        .data-table { table-layout: fixed; min-width: 865px; }
+        .data-table { table-layout: fixed; min-width: 862px; }
         .edit-table { table-layout: fixed; min-width: 1150px; }
         .history-table { table-layout: fixed; min-width: 1010px; }
         th { text-align: right; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .3px; padding: 8px; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
         td { text-align: right; font-size: 12px; padding: 7px 8px; border-bottom: 1px solid #eef2f7; vertical-align: middle; }
+        .data-table th {
+          padding: 6px 5px;
+          line-height: 1.15;
+          vertical-align: bottom;
+          white-space: normal;
+          overflow-wrap: normal;
+          word-break: normal;
+        }
+        .data-table td { padding: 6px 5px; }
         .history-table th { padding: 6px 5px; }
         .history-table td { padding: 6px 5px; }
         th.L, td.L { text-align: left; }
@@ -686,6 +695,17 @@ export default function Dashboard() {
           word-break: break-word;
         }
         td.price-cell input { font-variant-numeric: tabular-nums; }
+        td.open-actions-cell { padding-left: 4px; padding-right: 4px; text-align: center; }
+        .open-actions { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+        .open-action-button {
+          width: 50px;
+          min-height: 24px;
+          border-radius: 5px;
+          padding: 3px 4px;
+          cursor: pointer;
+          font-size: 10px;
+          line-height: 1.1;
+        }
         .row-position-select { font-weight: 700; }
         .brand-mark {
           width: 58px;
@@ -768,15 +788,16 @@ export default function Dashboard() {
           <div style={{ overflowX: "auto" }}>
             <table className="data-table">
               <colgroup>
+                <col style={{ width: 78 }} />
+                <col style={{ width: 84 }} />
+                <col style={{ width: 48 }} />
+                <col style={{ width: 76 }} />
+                <col style={{ width: 76 }} />
+                <col style={{ width: 82 }} />
                 <col style={{ width: 96 }} />
-                <col style={{ width: 104 }} />
-                <col style={{ width: 52 }} />
                 <col style={{ width: 112 }} />
-                <col style={{ width: 86 }} />
-                <col style={{ width: 98 }} />
-                <col style={{ width: 132 }} />
-                <col style={{ width: 146 }} />
-                <col style={{ width: 120 }} />
+                <col style={{ width: 150 }} />
+                <col style={{ width: 60 }} />
               </colgroup>
               <thead><tr><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th>Entrada</th><th>Atual</th><th>Custos</th><th>Resultado em aberto</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th><th></th></tr></thead>
               <tbody>
@@ -791,10 +812,10 @@ export default function Dashboard() {
                     <td style={{ color: position.hasMarketResult ? pnlColor(position.net) : "#b45309", fontWeight: 700 }}>{position.hasMarketResult ? fmtResult(position.net) : "Sem cotação"}</td>
                     <td className="L">{position.negocio || "-"}</td>
                     <td className="L details-cell">{position.detalhes || "-"}</td>
-                    <td>
-                      <div style={{ display: "flex", gap: 5, justifyContent: "flex-end" }}>
-                        <button onClick={() => editOpenPosition(position.id)} style={{ border: "1px solid #cbd5e1", background: editingOpenIdSet.has(position.id) ? "#eff6ff" : "#fff", color: "#1d4ed8", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>{editingOpenIdSet.has(position.id) ? "Editando" : "Editar"}</button>
-                        <button onClick={() => deletePosition(position.id)} style={{ border: "1px solid #fecaca", background: "#fff", color: "#b91c1c", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>Excluir</button>
+                    <td className="open-actions-cell">
+                      <div className="open-actions">
+                        <button className="open-action-button" onClick={() => editOpenPosition(position.id)} style={{ border: "1px solid #cbd5e1", background: editingOpenIdSet.has(position.id) ? "#eff6ff" : "#fff", color: "#1d4ed8" }}>{editingOpenIdSet.has(position.id) ? "Editando" : "Editar"}</button>
+                        <button className="open-action-button" onClick={() => deletePosition(position.id)} style={{ border: "1px solid #fecaca", background: "#fff", color: "#b91c1c" }}>Excluir</button>
                       </div>
                     </td>
                   </tr>
