@@ -13,6 +13,11 @@ describe("layout compacto das posições em aberto", () => {
     expect(fonte).toMatch(/\.data-table thead th,[\s\S]*?\.data-table thead th\.L \{[\s\S]*?text-align: center;[\s\S]*?vertical-align: middle;/);
   });
 
+  test("centraliza verticalmente os dados, exceto a coluna de detalhes", () => {
+    expect(fonte).toContain(".data-table tbody td { vertical-align: middle; }");
+    expect(fonte).toContain(".data-table tbody td.details-cell { vertical-align: top; }");
+  });
+
   test("resume cobertura sem duplicar posições abertas e separa resultados finalizados", () => {
     expect(fonte).toContain('["Bois Confinados",');
     expect(fonte).toContain('["Cobertos B3",');

@@ -680,6 +680,8 @@ export default function Dashboard() {
           word-break: normal;
         }
         .data-table td { padding: 6px 5px; }
+        .data-table tbody td { vertical-align: middle; }
+        .data-table tbody td.details-cell { vertical-align: top; }
         .history-table th {
           padding: 6px 5px;
           line-height: 1.15;
