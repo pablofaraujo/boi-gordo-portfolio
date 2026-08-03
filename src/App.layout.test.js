@@ -14,8 +14,8 @@ describe("layout compacto das posições em aberto", () => {
   });
 
   test("resume cobertura sem duplicar posições abertas e separa resultados finalizados", () => {
-    expect(fonte).toContain('["Contratos em Conf",');
-    expect(fonte).toContain('["Cobertura B3",');
+    expect(fonte).toContain('["Bois Confinados",');
+    expect(fonte).toContain('["Cobertos B3",');
     expect(fonte).not.toContain('["Posições abertas B3",');
     expect(fonte).toContain('["Resultado parcial em aberto", fmtResult(openNet), pnlColor(openNet)]');
     expect(fonte).toContain('["Resultado líquido fechado", fmtResult(closedNet), pnlColor(closedNet)]');

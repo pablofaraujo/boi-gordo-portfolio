@@ -43,3 +43,18 @@ export function calcularResumoCobertura(posicoesAbertas, contratosNecessarios) {
     arrobasB3Brutas: contratosB3Brutos * LOTE_ARROBAS,
   };
 }
+
+export function calcularResumoExibicao(resumo) {
+  const contratosConfinados = Math.round(numero(resumo?.necessarios));
+  const coberturaLiquida = numero(resumo?.coberturaLiquida);
+  const descobertos = numero(resumo?.descobertos);
+
+  return {
+    contratosConfinados,
+    arrobasConfinadas: contratosConfinados * LOTE_ARROBAS,
+    contratosCobertos: Math.round(coberturaLiquida),
+    arrobasCobertas: Math.round(coberturaLiquida * LOTE_ARROBAS),
+    contratosDescobertos: Math.round(descobertos),
+    arrobasDescobertas: Math.round(descobertos * LOTE_ARROBAS),
+  };
+}
