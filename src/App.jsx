@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { hasSession, fetchPositionsFromDb, fetchLatestQuotesFromDb, savePositionsToDb, saveQuotesToDb, deletePositionFromDb } from "./supabaseSync";
 import { criarControleGravacao } from "./controleGravacao";
+import { ordenarPosicoesPorVencimento } from "./ordenacaoPosicoes";
 
 const LOTE = 330;
 const STORAGE_KEY = "bgi-portfolio-positions-v1";
@@ -520,7 +521,7 @@ export default function Dashboard() {
   }
 
   const enriched = positions.map((position) => ({ ...normalizePosition(position), ...resultForPosition(position, prices) }));
-  const openPositions = enriched.filter((position) => !isClosed(position));
+  const openPositions = ordenarPosicoesPorVencimento(enriched.filter((position) => !isClosed(position)));
   const closedPositions = enriched.filter(isClosed);
   const [editingClosedIds, setEditingClosedIds] = useState([]);
   const [editingOpenIds, setEditingOpenIds] = useState([]);
@@ -659,6 +660,13 @@ export default function Dashboard() {
         .history-table th { padding: 6px 5px; }
         .history-table td { padding: 6px 5px; }
         th.L, td.L { text-align: left; }
+        td.details-cell {
+          font-size: 10px;
+          line-height: 1.35;
+          white-space: normal;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+        }
         td.price-cell input { font-variant-numeric: tabular-nums; }
         .row-position-select { font-weight: 700; }
         .brand-mark {
@@ -758,7 +766,7 @@ export default function Dashboard() {
                     <td>{fmtCurrency(position.costs)}</td>
                     <td style={{ color: position.hasMarketResult ? pnlColor(position.net) : "#b45309", fontWeight: 700 }}>{position.hasMarketResult ? fmtResult(position.net) : "Sem cotação"}</td>
                     <td className="L">{position.negocio || "-"}</td>
-                    <td className="L">{position.detalhes || "-"}</td>
+                    <td className="L details-cell">{position.detalhes || "-"}</td>
                     <td>
                       <div style={{ display: "flex", gap: 5, justifyContent: "flex-end" }}>
                         <button onClick={() => editOpenPosition(position.id)} style={{ border: "1px solid #cbd5e1", background: editingOpenIdSet.has(position.id) ? "#eff6ff" : "#fff", color: "#1d4ed8", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>{editingOpenIdSet.has(position.id) ? "Editando" : "Editar"}</button>
@@ -912,7 +920,7 @@ export default function Dashboard() {
                       <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{fmtResult(position.net)}</td>
                       <td style={{ color: pnlColor(position.net), fontWeight: 700 }}>{outcomeLabel(position.net)}</td>
                       <td className="L">{editing ? <textarea value={position.negocio} onChange={(event) => updatePosition(position.id, "negocio", event.target.value)} style={smallNotesStyle} placeholder="CF-26-009: 3 contratos" /> : (position.negocio || "-")}</td>
-                      <td className="L">{editing ? <textarea value={position.detalhes} onChange={(event) => updatePosition(position.id, "detalhes", event.target.value)} style={smallNotesStyle} placeholder="Detalhes" /> : (position.detalhes || "-")}</td>
+                      <td className={editing ? "L" : "L details-cell"}>{editing ? <textarea value={position.detalhes} onChange={(event) => updatePosition(position.id, "detalhes", event.target.value)} style={smallNotesStyle} placeholder="Detalhes" /> : (position.detalhes || "-")}</td>
                       <td>
                         {editing ? (
                           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
