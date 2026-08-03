@@ -70,7 +70,9 @@ if (fechada && saida != null) {
 const bruto = p.lado === "Termo" ? 0 : p.lado === "Vendido" ? (entrada - saida) * cts * LOTE : (saida - entrada) * cts * LOTE;
 resultado = Math.round((bruto - corretoraTotal - finpecTotal) * 100) / 100;
 }
-const especulacao = /espec/i.test(String(p.negocio || ""));
+const categoriaOriginal = String(p.categoria || "").toLowerCase();
+const especulacao = categoriaOriginal === "especulacao"
+|| (!categoriaOriginal && /espec/i.test(String(p.negocio || "")));
 return {
 termo: Object.prototype.hasOwnProperty.call(p, "termoPersistido")
 ? p.termoPersistido
@@ -114,6 +116,7 @@ dataSaida: r.data_saida || "",
 corretora: perArroba(r.custo_corretagem),
 finpec: perArroba(r.custo_finpec),
 status: r.status === "aberta" ? "Aberta" : "Fechada",
+categoria: r.categoria || (/espec/i.test(String(r.negocio_rateio || "")) ? "especulacao" : "hedge"),
 negocio: r.negocio_rateio || "",
 detalhes: r.detalhes || (isBgp ? "" : (r.obs || "")),
 };

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { hasSession, fetchPositionsFromDb, fetchHedgeExposureFromDb, fetchLatestQuotesFromDb, savePositionsToDb, saveQuotesToDb, deletePositionFromDb } from "./supabaseSync";
 import { criarControleGravacao } from "./controleGravacao";
 import { ordenarPosicoesPorVencimento } from "./ordenacaoPosicoes";
+import { calcularResumoCobertura } from "./resumoCobertura";
 
 const LOTE = 330;
 const STORAGE_KEY = "bgi-portfolio-positions-v1";
@@ -542,12 +543,13 @@ export default function Dashboard() {
   // A edição de uma posição encerrada agora acontece na própria linha da
   // tabela de Histórico (não move mais a posição para outra seção da tela —
   // isso era confuso: parecia que a posição tinha "sumido").
-  const openContracts = openPositions.reduce((sum, position) => sum + Math.abs(toNumber(position.contratos)), 0);
-  const openArrobas = openContracts * LOTE;
   const necessaryContracts = hedgeExposure?.necessarios ?? 0;
-  const hedgeOpenContracts = hedgeExposure?.abertos ?? 0;
-  const uncoveredContracts = hedgeExposure?.descobertos ?? 0;
-  const uncoveredArrobas = uncoveredContracts * LOTE;
+  const resumoCobertura = calcularResumoCobertura(openPositions, necessaryContracts);
+  const openContracts = resumoCobertura.contratosB3Brutos;
+  const openArrobas = resumoCobertura.arrobasB3Brutas;
+  const hedgeOpenContracts = resumoCobertura.coberturaLiquida;
+  const uncoveredContracts = resumoCobertura.descobertos;
+  const uncoveredArrobas = resumoCobertura.arrobasDescobertas;
   const openNet = openPositions.reduce((sum, position) => sum + position.net, 0);
   const closedNet = closedPositions.reduce((sum, position) => sum + position.net, 0);
   const totalNet = openNet + closedNet;
@@ -719,10 +721,10 @@ export default function Dashboard() {
           </button>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 6 }}>
           {[
             ["Contratos necessários", hedgeExposure ? `${fmtQuantity(necessaryContracts)} cts` : "—", "#475569"],
-            ["Vendidos em aberto", hedgeExposure ? `${fmtQuantity(hedgeOpenContracts)} cts` : "—", "#0f766e"],
+            ["Cobertura líquida aberta", `${fmtQuantity(hedgeOpenContracts)} cts`, "#0f766e"],
             ["Descoberto", hedgeExposure ? `${fmtQuantity(uncoveredContracts)} cts (${fmtQuantity(uncoveredArrobas)} @)` : "—", uncoveredContracts > 0 ? "#b91c1c" : "#15803d"],
             ["Posições abertas B3", `${fmtQuantity(openContracts)} cts (${fmtQuantity(openArrobas)} @)`, "#475569"],
             ["Resultado parcial em aberto", fmtResult(openNet), pnlColor(openNet)],
@@ -733,6 +735,9 @@ export default function Dashboard() {
               <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
             </div>
           ))}
+        </div>
+        <div style={{ color: "#64748b", fontSize: 11, marginBottom: 16 }}>
+          Cobertura líquida = vendas de hedge + termos − compras de hedge. Posições de especulação não cobrem os lotes.
         </div>
 
         <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 12, marginBottom: 16 }}>

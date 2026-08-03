@@ -70,6 +70,12 @@ describe("identidade persistente das posições", () => {
     expect(plano.gravacoesPorTermo[0].termo).toBe("bgp:nova-posicao");
   });
 
+  test("categoria de especulação não vira hedge ao salvar novamente", () => {
+    const position = rowToApp({ ...LEGADO, categoria: "especulacao" });
+    expect(position.categoria).toBe("especulacao");
+    expect(appToRow(position).categoria).toBe("especulacao");
+  });
+
   test("repetições da mesma identidade são reduzidas a uma gravação", () => {
     const position = rowToApp(LEGADO);
     const plano = separarPosicoesParaPersistencia([position, { ...position }]);
