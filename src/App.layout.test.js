@@ -21,4 +21,12 @@ describe("layout compacto das posições em aberto", () => {
     expect(fonte).toMatch(/\.open-action-button \{[\s\S]*?width: 50px;/);
     expect(fonte.match(/className="open-action-button"/g)).toHaveLength(2);
   });
+
+  test("aplica o mesmo cabeçalho compacto ao histórico sem quebrar os valores", () => {
+    expect(fonte).toMatch(/\.history-table th \{[\s\S]*?white-space: normal;/);
+    expect(fonte).toContain(".history-table td:not(.details-cell) { white-space: nowrap; }");
+    const historico = fonte.match(/<table className="history-table">([\s\S]*?)<\/table>/)?.[1] || "";
+    expect(historico.match(/<col style=/g)).toHaveLength(13);
+    expect(historico).toContain('<col style={{ width: 140 }} />');
+  });
 });

@@ -672,7 +672,7 @@ export default function Dashboard() {
         table { width: 100%; border-collapse: collapse; }
         .data-table { table-layout: fixed; min-width: 862px; }
         .edit-table { table-layout: fixed; min-width: 1150px; }
-        .history-table { table-layout: fixed; min-width: 1010px; }
+        .history-table { table-layout: fixed; min-width: 1034px; }
         th { text-align: right; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .3px; padding: 8px; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
         td { text-align: right; font-size: 12px; padding: 7px 8px; border-bottom: 1px solid #eef2f7; vertical-align: middle; }
         .data-table th {
@@ -684,8 +684,16 @@ export default function Dashboard() {
           word-break: normal;
         }
         .data-table td { padding: 6px 5px; }
-        .history-table th { padding: 6px 5px; }
+        .history-table th {
+          padding: 6px 5px;
+          line-height: 1.15;
+          vertical-align: bottom;
+          white-space: normal;
+          overflow-wrap: normal;
+          word-break: normal;
+        }
         .history-table td { padding: 6px 5px; }
+        .history-table td:not(.details-cell) { white-space: nowrap; }
         th.L, td.L { text-align: left; }
         td.details-cell {
           font-size: 10px;
@@ -917,19 +925,19 @@ export default function Dashboard() {
           <div style={{ overflowX: "auto" }}>
             <table className="history-table">
               <colgroup>
-                <col style={{ width: 128 }} />
-                <col style={{ width: 98 }} />
-                <col style={{ width: 52 }} />
-                <col style={{ width: 92 }} />
-                <col style={{ width: 92 }} />
                 <col style={{ width: 78 }} />
-                <col style={{ width: 82 }} />
+                <col style={{ width: 84 }} />
+                <col style={{ width: 48 }} />
                 <col style={{ width: 78 }} />
-                <col style={{ width: 118 }} />
-                <col style={{ width: 88 }} />
-                <col style={{ width: 132 }} />
-                <col style={{ width: 104 }} />
-                <col style={{ width: 68 }} />
+                <col style={{ width: 78 }} />
+                <col style={{ width: 66 }} />
+                <col style={{ width: 76 }} />
+                <col style={{ width: 70 }} />
+                <col style={{ width: 90 }} />
+                <col style={{ width: 70 }} />
+                <col style={{ width: 100 }} />
+                <col style={{ width: 140 }} />
+                <col style={{ width: 56 }} />
               </colgroup>
               <thead><tr><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th>Entrada</th><th>Saída</th><th>Data saída</th><th>Corretora</th><th>Finpec</th><th>Resultado</th><th>Ganho/Perda</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th><th></th></tr></thead>
               <tbody>
