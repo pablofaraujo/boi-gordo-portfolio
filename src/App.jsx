@@ -695,6 +695,11 @@ export default function Dashboard() {
         .history-table td { padding: 6px 5px; }
         .history-table td:not(.details-cell) { white-space: nowrap; }
         th.L, td.L { text-align: left; }
+        .data-table thead th,
+        .data-table thead th.L {
+          text-align: center;
+          vertical-align: middle;
+        }
         td.details-cell {
           font-size: 10px;
           line-height: 1.35;
