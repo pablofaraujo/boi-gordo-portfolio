@@ -13,6 +13,15 @@ describe("layout compacto das posições em aberto", () => {
     expect(fonte).toMatch(/\.data-table thead th,[\s\S]*?\.data-table thead th\.L \{[\s\S]*?text-align: center;[\s\S]*?vertical-align: middle;/);
   });
 
+  test("resume cobertura sem duplicar posições abertas e separa resultados finalizados", () => {
+    expect(fonte).toContain('["Contratos em Conf",');
+    expect(fonte).toContain('["Cobertura B3",');
+    expect(fonte).not.toContain('["Posições abertas B3",');
+    expect(fonte).toContain('["Resultado parcial em aberto", fmtResult(openNet), pnlColor(openNet)]');
+    expect(fonte).toContain('["Resultado líquido fechado", fmtResult(closedNet), pnlColor(closedNet)]');
+    expect(fonte).not.toContain("const totalNet = openNet + closedNet");
+  });
+
   test("reserva dez colunas compactas e mais espaço para detalhes", () => {
     const tabela = fonte.match(/<table className="data-table">([\s\S]*?)<\/table>/)?.[1] || "";
     expect(tabela.match(/<col style=/g)).toHaveLength(10);

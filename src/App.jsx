@@ -545,14 +545,11 @@ export default function Dashboard() {
   // isso era confuso: parecia que a posição tinha "sumido").
   const necessaryContracts = hedgeExposure?.necessarios ?? 0;
   const resumoCobertura = calcularResumoCobertura(openPositions, necessaryContracts);
-  const openContracts = resumoCobertura.contratosB3Brutos;
-  const openArrobas = resumoCobertura.arrobasB3Brutas;
   const hedgeOpenContracts = resumoCobertura.coberturaLiquida;
   const uncoveredContracts = resumoCobertura.descobertos;
   const uncoveredArrobas = resumoCobertura.arrobasDescobertas;
   const openNet = openPositions.reduce((sum, position) => sum + position.net, 0);
   const closedNet = closedPositions.reduce((sum, position) => sum + position.net, 0);
-  const totalNet = openNet + closedNet;
   const closedBrokerCosts = closedPositions.reduce((sum, position) => sum + position.brokerCost, 0);
   const closedFinpecCosts = closedPositions.reduce((sum, position) => sum + position.finpecCost, 0);
 
@@ -761,12 +758,11 @@ export default function Dashboard() {
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 6 }}>
           {[
-            ["Contratos necessários", hedgeExposure ? `${fmtQuantity(necessaryContracts)} cts` : "—", "#475569"],
-            ["Cobertura líquida aberta", `${fmtQuantity(hedgeOpenContracts)} cts`, "#0f766e"],
+            ["Contratos em Conf", hedgeExposure ? `${fmtQuantity(necessaryContracts)} cts` : "—", "#475569"],
+            ["Cobertura B3", `${fmtQuantity(hedgeOpenContracts)} cts (${fmtQuantity(hedgeOpenContracts * LOTE)} @)`, "#0f766e"],
             ["Descoberto", hedgeExposure ? `${fmtQuantity(uncoveredContracts)} cts (${fmtQuantity(uncoveredArrobas)} @)` : "—", uncoveredContracts > 0 ? "#b91c1c" : "#15803d"],
-            ["Posições abertas B3", `${fmtQuantity(openContracts)} cts (${fmtQuantity(openArrobas)} @)`, "#475569"],
             ["Resultado parcial em aberto", fmtResult(openNet), pnlColor(openNet)],
-            ["Resultado líquido", fmtResult(totalNet), pnlColor(totalNet)],
+            ["Resultado líquido fechado", fmtResult(closedNet), pnlColor(closedNet)],
           ].map(([label, value, color]) => (
             <div key={label} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14 }}>
               <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", marginBottom: 6 }}>{label}</div>
