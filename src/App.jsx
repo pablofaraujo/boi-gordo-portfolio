@@ -3,6 +3,7 @@ import { hasSession, fetchPositionsFromDb, fetchHedgeExposureFromDb, fetchLatest
 import { criarControleGravacao } from "./controleGravacao";
 import { ordenarPosicoesPorVencimento } from "./ordenacaoPosicoes";
 import { calcularResumoCobertura, calcularResumoExibicao } from "./resumoCobertura";
+import { cotacaoEncerrada, montarCalendarioCotacoes } from "./calendarioCotacoes";
 
 const LOTE = 330;
 const STORAGE_KEY = "bgi-portfolio-positions-v1";
@@ -63,6 +64,8 @@ function buildBgiIndices(janelaMeses = 9) {
 }
 
 const BGI_INDICES = buildBgiIndices();
+const COTACOES_CALENDARIO = montarCalendarioCotacoes(new Date().getFullYear());
+const ANOS_COTACOES = [...new Set(COTACOES_CALENDARIO.map((item) => item.ano))];
 
 function anosDisponiveis() {
   const atual = new Date().getFullYear() % 100;
@@ -504,8 +507,11 @@ export default function Dashboard() {
         updatedQuotes = quoteResponses.filter((quote) => !quote.fallback && quote.fechamento);
       }
       if (!updatedQuotes.length) throw new Error("Sem cotação atualizada na B3");
+      const updatedPrices = quoteResponses.reduce((acc, quote) => (
+        quote.fechamento ? { ...acc, [quote.contrato]: quote.fechamento } : acc
+      ), {});
       const normalized = {
-        prices: quoteResponses.reduce((acc, quote) => ({ ...acc, [quote.contrato]: quote.fechamento }), {}),
+        prices: { ...previousPrices, ...updatedPrices },
         updatedAt: new Date().toISOString(),
         source: updatedQuotes.some((quote) => String(quote.fonte || "").includes("TradingView"))
           ? "TradingView (B3 com 15 min de atraso)"
@@ -515,7 +521,7 @@ export default function Dashboard() {
       window.localStorage.setItem(QUOTES_STORAGE_KEY, JSON.stringify(normalized));
       if (dbConnected) {
         try {
-          await saveQuotesToDb(normalized.prices, normalized.source);
+          await saveQuotesToDb(updatedPrices, normalized.source);
         } catch (err) {
           setSyncStatus(`Cotações atualizadas na tela, mas não salvas na base (${err?.message || "erro"}).`);
         }
@@ -722,6 +728,15 @@ export default function Dashboard() {
           font-size: 10px;
           line-height: 1.1;
         }
+        .quotes-calendar-scroll { width: 100%; overflow-x: auto; padding-bottom: 3px; }
+        .quotes-year { min-width: 1060px; margin-top: 9px; }
+        .quotes-year:first-child { margin-top: 0; }
+        .quotes-year-label { font-size: 11px; font-weight: 700; color: #475569; margin-bottom: 4px; }
+        .quotes-year-grid { display: grid; grid-template-columns: repeat(12, minmax(82px, 1fr)); gap: 6px; }
+        .quote-card { border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 7px; min-width: 82px; background: #fff; }
+        .quote-card.closed { background: #f1f5f9; border-color: #cbd5e1; }
+        .quote-period { font-size: 9px; color: #94a3b8; margin-top: 2px; }
+        .quote-closed-label { font-size: 8px; color: #64748b; text-transform: uppercase; letter-spacing: .3px; margin-top: 3px; }
         .row-position-select { font-weight: 700; }
         .brand-mark {
           width: 58px;
@@ -784,19 +799,31 @@ export default function Dashboard() {
               <div style={{ fontSize: 12, color: "#64748b" }}>{quoteStatus}</div>
               <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 3 }}>Fonte: {marketQuotes.source || "cotações base"}</div>
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end" }}>
+            <div>
               <button onClick={refreshQuotes} disabled={quoteLoading} style={{ border: 0, background: quoteLoading ? "#94a3b8" : "#2563eb", color: "#fff", borderRadius: 6, padding: "8px 10px", cursor: quoteLoading ? "wait" : "pointer", fontSize: 12 }}>
                 {quoteLoading ? "Atualizando..." : "Atualizar cotações"}
               </button>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {BGI_INDICES.map((item) => (
-                  <div key={item.contrato} style={{ border: "1px solid #e2e8f0", borderRadius: 6, padding: "6px 8px", minWidth: 88 }}>
-                    <div style={{ fontSize: 10, color: "#64748b" }}>{item.contrato}</div>
-                    <div style={{ fontSize: 14, fontWeight: 700 }}>R$ {fmtPrice(prices[item.contrato])}</div>
-                  </div>
-                ))}
-              </div>
             </div>
+          </div>
+          <div className="quotes-calendar-scroll">
+            {ANOS_COTACOES.map((ano) => (
+              <div className="quotes-year" key={ano}>
+                <div className="quotes-year-label">Vencimentos {ano}</div>
+                <div className="quotes-year-grid">
+                  {COTACOES_CALENDARIO.filter((item) => item.ano === ano).map((item) => {
+                    const encerrada = cotacaoEncerrada(item);
+                    return (
+                      <div key={item.contrato} className={`quote-card${encerrada ? " closed" : ""}`}>
+                        <div style={{ fontSize: 10, color: encerrada ? "#64748b" : "#334155" }}>{item.contrato}</div>
+                        <div style={{ fontSize: 14, fontWeight: 700 }}>R$ {fmtPrice(prices[item.contrato])}</div>
+                        <div className="quote-period">{item.periodo}</div>
+                        {encerrada ? <div className="quote-closed-label">Fechado</div> : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </section>
 

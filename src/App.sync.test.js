@@ -25,4 +25,10 @@ describe("contrato de recarga das posições", () => {
     expect(fonte).not.toContain("Sincronizar posições");
     expect(fonte).not.toContain("refreshPositionsFromSheets");
   });
+
+  test("a atualização preserva fechamentos antigos e grava somente os contratos consultados", () => {
+    expect(fonte).toContain("prices: { ...previousPrices, ...updatedPrices }");
+    expect(fonte).toContain("await saveQuotesToDb(updatedPrices, normalized.source)");
+    expect(fonte).not.toContain("await saveQuotesToDb(normalized.prices, normalized.source)");
+  });
 });

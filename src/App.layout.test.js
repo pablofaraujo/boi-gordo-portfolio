@@ -18,6 +18,13 @@ describe("layout compacto das posições em aberto", () => {
     expect(fonte).toContain(".data-table tbody td.details-cell { vertical-align: top; }");
   });
 
+  test("organiza as cotações em duas linhas anuais de doze meses", () => {
+    expect(fonte).toContain("const COTACOES_CALENDARIO = montarCalendarioCotacoes(new Date().getFullYear())");
+    expect(fonte).toContain("grid-template-columns: repeat(12, minmax(82px, 1fr))");
+    expect(fonte).toContain('className={`quote-card${encerrada ? " closed" : ""}`}');
+    expect(fonte).toContain("Fechado");
+  });
+
   test("resume cobertura sem duplicar posições abertas e separa resultados finalizados", () => {
     expect(fonte).toContain('["Bois Confinados",');
     expect(fonte).toContain('["Cobertos B3",');
