@@ -686,8 +686,15 @@ export default function Dashboard() {
           word-break: normal;
         }
         .data-table td { padding: 6px 5px; }
-        .data-table tbody td { vertical-align: middle; }
-        .data-table tbody td.details-cell { vertical-align: top; }
+        .data-table tbody td,
+        .data-table tbody td.L {
+          text-align: center;
+          vertical-align: middle;
+        }
+        .data-table tbody td.details-cell {
+          text-align: left;
+          vertical-align: top;
+        }
         .history-table th {
           padding: 6px 5px;
           line-height: 1.15;
@@ -703,6 +710,10 @@ export default function Dashboard() {
         .data-table thead th.L {
           text-align: center;
           vertical-align: middle;
+        }
+        .data-table thead th.details-header {
+          text-align: left;
+          vertical-align: top;
         }
         .history-table thead th,
         .history-table thead th.L {
@@ -843,7 +854,7 @@ export default function Dashboard() {
                 <col style={{ width: 150 }} />
                 <col style={{ width: 60 }} />
               </colgroup>
-              <thead><tr><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th>Entrada</th><th>Atual</th><th>Custos</th><th>Resultado em aberto</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th><th></th></tr></thead>
+              <thead><tr><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th>Entrada</th><th>Atual</th><th>Custos</th><th>Resultado em aberto</th><th className="L">Negócio / Rateio</th><th className="L details-header">Detalhes</th><th></th></tr></thead>
               <tbody>
                 {openPositions.length ? openPositions.map((position) => (
                   <tr key={`open-${position.id}`} style={positionRowStyle(position.lado)}>

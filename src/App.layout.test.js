@@ -13,9 +13,11 @@ describe("layout compacto das posições em aberto", () => {
     expect(fonte).toMatch(/\.data-table thead th,[\s\S]*?\.data-table thead th\.L \{[\s\S]*?text-align: center;[\s\S]*?vertical-align: middle;/);
   });
 
-  test("centraliza verticalmente os dados, exceto a coluna de detalhes", () => {
-    expect(fonte).toContain(".data-table tbody td { vertical-align: middle; }");
-    expect(fonte).toContain(".data-table tbody td.details-cell { vertical-align: top; }");
+  test("centraliza os dados nos dois eixos, exceto a coluna de detalhes", () => {
+    expect(fonte).toMatch(/\.data-table tbody td,[\s\S]*?\.data-table tbody td\.L \{[\s\S]*?text-align: center;[\s\S]*?vertical-align: middle;/);
+    expect(fonte).toMatch(/\.data-table tbody td\.details-cell \{[\s\S]*?text-align: left;[\s\S]*?vertical-align: top;/);
+    expect(fonte).toMatch(/\.data-table thead th\.details-header \{[\s\S]*?text-align: left;[\s\S]*?vertical-align: top;/);
+    expect(fonte).toContain('<th className="L details-header">Detalhes</th>');
   });
 
   test("organiza as cotações em duas linhas anuais de doze meses", () => {
