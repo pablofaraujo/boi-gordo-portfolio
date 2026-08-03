@@ -28,5 +28,7 @@ describe("layout compacto das posições em aberto", () => {
     const historico = fonte.match(/<table className="history-table">([\s\S]*?)<\/table>/)?.[1] || "";
     expect(historico.match(/<col style=/g)).toHaveLength(13);
     expect(historico).toContain('<col style={{ width: 140 }} />');
+    expect(historico).toContain("Ganho/<br />Perda");
+    expect(historico).toContain("Negócio /<br />Rateio");
   });
 });

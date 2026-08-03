@@ -939,7 +939,7 @@ export default function Dashboard() {
                 <col style={{ width: 140 }} />
                 <col style={{ width: 56 }} />
               </colgroup>
-              <thead><tr><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th>Entrada</th><th>Saída</th><th>Data saída</th><th>Corretora</th><th>Finpec</th><th>Resultado</th><th>Ganho/Perda</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th><th></th></tr></thead>
+              <thead><tr><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th>Entrada</th><th>Saída</th><th>Data<br />saída</th><th>Corretora</th><th>Finpec</th><th>Resultado</th><th>Ganho/<br />Perda</th><th className="L">Negócio /<br />Rateio</th><th className="L">Detalhes</th><th></th></tr></thead>
               <tbody>
                 {closedPositions.length ? closedPositions.map((position) => {
                   const editing = editingClosedIdSet.has(position.id);
