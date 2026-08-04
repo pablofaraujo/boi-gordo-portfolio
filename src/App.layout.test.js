@@ -27,6 +27,18 @@ describe("layout compacto das posições em aberto", () => {
     expect(fonte).toContain("Fechado");
   });
 
+  test("exibe fechamentos históricos com tipografia compacta", () => {
+    expect(fonte).toContain("precoCotacaoCalendario(item.contrato, prices)");
+    expect(fonte).toContain(".quote-contract { font-size: 9px;");
+    expect(fonte).toContain(".quote-value { font-size: 12px;");
+    expect(fonte).toContain(".quote-period { font-size: 8px;");
+    expect(fonte).toContain(".quote-closed-label { font-size: 7px;");
+  });
+
+  test("mostra dois dígitos no total de contratos descobertos", () => {
+    expect(fonte).toContain("fmtWholeQuantity(resumoExibicao.contratosDescobertos, 2)");
+  });
+
   test("resume cobertura sem duplicar posições abertas e separa resultados finalizados", () => {
     expect(fonte).toContain('["Bois Confinados",');
     expect(fonte).toContain('["Cobertos B3",');

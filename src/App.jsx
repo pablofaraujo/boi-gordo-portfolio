@@ -3,7 +3,7 @@ import { hasSession, fetchPositionsFromDb, fetchHedgeExposureFromDb, fetchLatest
 import { criarControleGravacao } from "./controleGravacao";
 import { ordenarPosicoesPorVencimento } from "./ordenacaoPosicoes";
 import { calcularResumoCobertura, calcularResumoExibicao } from "./resumoCobertura";
-import { cotacaoEncerrada, montarCalendarioCotacoes } from "./calendarioCotacoes";
+import { cotacaoEncerrada, montarCalendarioCotacoes, precoCotacaoCalendario } from "./calendarioCotacoes";
 
 const LOTE = 330;
 const STORAGE_KEY = "bgi-portfolio-positions-v1";
@@ -143,6 +143,14 @@ function fmtQuantity(value) {
   return new Intl.NumberFormat("pt-BR", {
     maximumFractionDigits: 2,
     minimumFractionDigits: 0,
+  }).format(value || 0);
+}
+
+function fmtWholeQuantity(value, minimumIntegerDigits = 1) {
+  return new Intl.NumberFormat("pt-BR", {
+    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+    minimumIntegerDigits,
   }).format(value || 0);
 }
 
@@ -744,10 +752,12 @@ export default function Dashboard() {
         .quotes-year:first-child { margin-top: 0; }
         .quotes-year-label { font-size: 11px; font-weight: 700; color: #475569; margin-bottom: 4px; }
         .quotes-year-grid { display: grid; grid-template-columns: repeat(12, minmax(82px, 1fr)); gap: 6px; }
-        .quote-card { border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 7px; min-width: 82px; background: #fff; }
+        .quote-card { border: 1px solid #e2e8f0; border-radius: 6px; padding: 5px 6px; min-width: 82px; background: #fff; }
         .quote-card.closed { background: #f1f5f9; border-color: #cbd5e1; }
-        .quote-period { font-size: 9px; color: #94a3b8; margin-top: 2px; }
-        .quote-closed-label { font-size: 8px; color: #64748b; text-transform: uppercase; letter-spacing: .3px; margin-top: 3px; }
+        .quote-contract { font-size: 9px; line-height: 1.15; }
+        .quote-value { font-size: 12px; line-height: 1.15; font-weight: 700; white-space: nowrap; }
+        .quote-period { font-size: 8px; line-height: 1.15; color: #94a3b8; margin-top: 2px; }
+        .quote-closed-label { font-size: 7px; line-height: 1.15; color: #64748b; text-transform: uppercase; letter-spacing: .2px; margin-top: 2px; }
         .row-position-select { font-weight: 700; }
         .brand-mark {
           width: 58px;
@@ -787,7 +797,7 @@ export default function Dashboard() {
           {[
             ["Bois Confinados", hedgeExposure ? [`${fmtQuantity(resumoExibicao.contratosConfinados)} cts`, `${fmtQuantity(resumoExibicao.arrobasConfinadas)} @`] : ["—"], "#475569"],
             ["Cobertos B3", [`${fmtQuantity(resumoExibicao.contratosCobertos)} cts`, `${fmtQuantity(resumoExibicao.arrobasCobertas)} @`], "#0f766e"],
-            ["Descoberto", hedgeExposure ? [`${fmtQuantity(resumoExibicao.contratosDescobertos)} cts`, `${fmtQuantity(resumoExibicao.arrobasDescobertas)} @`] : ["—"], uncoveredContracts > 0 ? "#b91c1c" : "#15803d"],
+            ["Descoberto", hedgeExposure ? [`${fmtWholeQuantity(resumoExibicao.contratosDescobertos, 2)} cts`, `${fmtQuantity(resumoExibicao.arrobasDescobertas)} @`] : ["—"], uncoveredContracts > 0 ? "#b91c1c" : "#15803d"],
             ["Resultado parcial em aberto", fmtResult(openNet), pnlColor(openNet)],
             ["Resultado líquido fechado", fmtResult(closedNet), pnlColor(closedNet)],
           ].map(([label, value, color]) => (
@@ -825,8 +835,8 @@ export default function Dashboard() {
                     const encerrada = cotacaoEncerrada(item);
                     return (
                       <div key={item.contrato} className={`quote-card${encerrada ? " closed" : ""}`}>
-                        <div style={{ fontSize: 10, color: encerrada ? "#64748b" : "#334155" }}>{item.contrato}</div>
-                        <div style={{ fontSize: 14, fontWeight: 700 }}>R$ {fmtPrice(prices[item.contrato])}</div>
+                        <div className="quote-contract" style={{ color: encerrada ? "#64748b" : "#334155" }}>{item.contrato}</div>
+                        <div className="quote-value">R$ {fmtPrice(precoCotacaoCalendario(item.contrato, prices))}</div>
                         <div className="quote-period">{item.periodo}</div>
                         {encerrada ? <div className="quote-closed-label">Fechado</div> : null}
                       </div>
