@@ -39,6 +39,14 @@ describe("layout compacto das posições em aberto", () => {
     expect(fonte).toContain("fmtWholeQuantity(resumoExibicao.contratosDescobertos, 2)");
   });
 
+  test("alinha o cabeçalho às demais áreas e não repete a imagem Confinex", () => {
+    expect(fonte).toContain(">Portfólio B3</h1>");
+    expect(fonte).toContain(">Posições e cotações de boi gordo</div>");
+    expect(fonte).toContain("fmtHeaderStatus(syncStatus)");
+    expect(fonte).not.toContain('className="brand-mark"');
+    expect(fonte).not.toContain('alt="Confinex"');
+  });
+
   test("resume cobertura sem duplicar posições abertas e separa resultados finalizados", () => {
     expect(fonte).toContain('["Bois Confinados",');
     expect(fonte).toContain('["Cobertos B3",');

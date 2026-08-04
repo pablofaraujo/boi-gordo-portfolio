@@ -175,6 +175,10 @@ function fmtShortDate(value) {
   return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" }).format(date);
 }
 
+function fmtHeaderStatus(value) {
+  return String(value || "").replace(/^Carregado da base Confinex em /, "Atualizado ");
+}
+
 function resultForPosition(position, prices) {
   const qty = toNumber(position.contratos);
   const entry = toNumber(position.entrada);
@@ -759,34 +763,21 @@ export default function Dashboard() {
         .quote-period { font-size: 8px; line-height: 1.15; color: #94a3b8; margin-top: 2px; }
         .quote-closed-label { font-size: 7px; line-height: 1.15; color: #64748b; text-transform: uppercase; letter-spacing: .2px; margin-top: 2px; }
         .row-position-select { font-weight: 700; }
-        .brand-mark {
-          width: 58px;
-          height: 58px;
-          border-radius: 50%;
-          object-fit: cover;
-          flex-shrink: 0;
-          border: 1px solid #e5e7eb;
-          box-shadow: 0 1px 4px rgba(15, 23, 42, .12);
-        }
         .stacked-cell { display: grid; gap: 5px; }
         .stacked-field { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 5px; align-items: center; }
         .stacked-label { color: #94a3b8; font-size: 9px; font-weight: 700; text-align: left; text-transform: uppercase; }
         .new-position-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
         @media (max-width: 720px) {
-          .brand-mark { width: 52px; height: 52px; }
           .new-position-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
         button { font: inherit; }
       `}</style>
       <div style={{ maxWidth: 1280, margin: "0 auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-          <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 280 }}>
-            <img className="brand-mark" src={`${process.env.PUBLIC_URL || ""}/confinex-logo.jpg`} alt="Confinex" />
-            <div>
-              <div style={{ fontSize: 10, letterSpacing: 1.8, color: "#94a3b8", textTransform: "uppercase", marginBottom: 4 }}>B3 · BGI · Posições gravadas</div>
-              <h1 style={{ fontSize: 22, margin: 0 }}>Boi Gordo — Portfólio</h1>
-              <div style={{ fontSize: 11, color: dbConnected ? "#0f766e" : "#94a3b8", marginTop: 5 }}>{syncStatus}</div>
-            </div>
+          <div style={{ minWidth: 280 }}>
+            <h1 style={{ fontSize: 22, margin: 0 }}>Portfólio B3</h1>
+            <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Posições e cotações de boi gordo</div>
+            <div style={{ fontSize: 11, color: dbConnected ? "#0f766e" : "#94a3b8", marginTop: 5 }}>{fmtHeaderStatus(syncStatus)}</div>
           </div>
           <button onClick={recarregarPosicoesDaBase} disabled={syncLoading} style={{ border: "1px solid #cbd5e1", background: "#fff", color: dbConnected ? "#334155" : "#94a3b8", borderRadius: 6, padding: "7px 9px", cursor: syncLoading ? "not-allowed" : "pointer", fontSize: 12 }}>
             {syncLoading ? "Recarregando..." : "Recarregar da base"}
