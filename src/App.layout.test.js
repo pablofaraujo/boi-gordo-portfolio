@@ -41,8 +41,11 @@ describe("layout compacto das posições em aberto", () => {
 
   test("alinha o cabeçalho às demais áreas e não repete a imagem Confinex", () => {
     expect(fonte).toContain(">Portfólio B3</h1>");
-    expect(fonte).toContain(">Posições e cotações de boi gordo</div>");
     expect(fonte).toContain("fmtHeaderStatus(syncStatus)");
+    expect(fonte).toContain('.portfolio-title { margin: 0; color: #172536; font-size: 28px; font-weight: 700;');
+    expect(fonte).toContain('.portfolio-subtitle { margin-top: 4px; color: #6c7885; font-size: 13px; font-weight: 400;');
+    expect(fonte).toContain('.portfolio-title { font-size: 24px; }');
+    expect(fonte).not.toContain("Posições e cotações de boi gordo");
     expect(fonte).not.toContain('className="brand-mark"');
     expect(fonte).not.toContain('alt="Confinex"');
   });

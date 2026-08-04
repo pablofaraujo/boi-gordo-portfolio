@@ -762,22 +762,25 @@ export default function Dashboard() {
         .quote-value { font-size: 12px; line-height: 1.15; font-weight: 700; white-space: nowrap; }
         .quote-period { font-size: 8px; line-height: 1.15; color: #94a3b8; margin-top: 2px; }
         .quote-closed-label { font-size: 7px; line-height: 1.15; color: #64748b; text-transform: uppercase; letter-spacing: .2px; margin-top: 2px; }
+        .portfolio-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; padding-bottom: 18px; border-bottom: 1px solid #dfe4ea; margin-bottom: 16px; }
+        .portfolio-title { margin: 0; color: #172536; font-size: 28px; font-weight: 700; line-height: 1.2; letter-spacing: -.02em; }
+        .portfolio-subtitle { margin-top: 4px; color: #6c7885; font-size: 13px; font-weight: 400; line-height: 1.35; }
         .row-position-select { font-weight: 700; }
         .stacked-cell { display: grid; gap: 5px; }
         .stacked-field { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 5px; align-items: center; }
         .stacked-label { color: #94a3b8; font-size: 9px; font-weight: 700; text-align: left; text-transform: uppercase; }
         .new-position-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
         @media (max-width: 720px) {
+          .portfolio-title { font-size: 24px; }
           .new-position-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
         button { font: inherit; }
       `}</style>
       <div style={{ maxWidth: 1280, margin: "0 auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+        <div className="portfolio-header">
           <div style={{ minWidth: 280 }}>
-            <h1 style={{ fontSize: 22, margin: 0 }}>Portfólio B3</h1>
-            <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Posições e cotações de boi gordo</div>
-            <div style={{ fontSize: 11, color: dbConnected ? "#0f766e" : "#94a3b8", marginTop: 5 }}>{fmtHeaderStatus(syncStatus)}</div>
+            <h1 className="portfolio-title">Portfólio B3</h1>
+            <div className="portfolio-subtitle">{fmtHeaderStatus(syncStatus)}</div>
           </div>
           <button onClick={recarregarPosicoesDaBase} disabled={syncLoading} style={{ border: "1px solid #cbd5e1", background: "#fff", color: dbConnected ? "#334155" : "#94a3b8", borderRadius: 6, padding: "7px 9px", cursor: syncLoading ? "not-allowed" : "pointer", fontSize: 12 }}>
             {syncLoading ? "Recarregando..." : "Recarregar da base"}
