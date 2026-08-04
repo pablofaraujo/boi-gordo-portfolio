@@ -44,6 +44,8 @@ describe("layout compacto das posições em aberto", () => {
     expect(fonte).toContain("fmtHeaderStatus(syncStatus)");
     expect(fonte).toContain('.portfolio-title { margin: 0; color: #172536; font-size: 28px; font-weight: 700;');
     expect(fonte).toContain('.portfolio-subtitle { margin-top: 4px; color: #6c7885; font-size: 13px; font-weight: 400;');
+    expect(fonte).toContain('body.has-shell #root > div { padding-top: 0 !important; }');
+    expect(fonte).toContain('body.has-shell .portfolio-header { margin-left: -16px; margin-right: -16px; }');
     expect(fonte).toContain('.portfolio-title { font-size: 24px; }');
     expect(fonte).not.toContain("Posições e cotações de boi gordo");
     expect(fonte).not.toContain('className="brand-mark"');

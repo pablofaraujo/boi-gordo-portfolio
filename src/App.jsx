@@ -765,6 +765,8 @@ export default function Dashboard() {
         .portfolio-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; padding-bottom: 18px; border-bottom: 1px solid #dfe4ea; margin-bottom: 16px; }
         .portfolio-title { margin: 0; color: #172536; font-size: 28px; font-weight: 700; line-height: 1.2; letter-spacing: -.02em; }
         .portfolio-subtitle { margin-top: 4px; color: #6c7885; font-size: 13px; font-weight: 400; line-height: 1.35; }
+        body.has-shell #root > div { padding-top: 0 !important; }
+        body.has-shell .portfolio-header { margin-left: -16px; margin-right: -16px; }
         .row-position-select { font-weight: 700; }
         .stacked-cell { display: grid; gap: 5px; }
         .stacked-field { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 5px; align-items: center; }
