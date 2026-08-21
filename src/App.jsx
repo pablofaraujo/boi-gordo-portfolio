@@ -4,6 +4,7 @@ import { criarControleGravacao } from "./controleGravacao";
 import { ordenarPosicoesPorVencimento } from "./ordenacaoPosicoes";
 import { calcularResumoCobertura, calcularResumoExibicao } from "./resumoCobertura";
 import { cotacaoEncerrada, montarCalendarioCotacoes, precoCotacaoCalendario } from "./calendarioCotacoes";
+import { aplicarReferenciasPersistidas } from "./referenciaBolsa";
 
 const LOTE = 330;
 const STORAGE_KEY = "bgi-portfolio-positions-v1";
@@ -110,6 +111,7 @@ const emptyDraft = {
   status: "Aberta",
   negocio: "",
   detalhes: "",
+  referenciaBolsa: "",
 };
 
 function toNumber(value) {
@@ -202,7 +204,7 @@ function resultForPosition(position, prices) {
 
 function normalizePosition(position) {
   const hasExit = position.saida !== "" && position.saida !== null && position.saida !== undefined;
-  return { dataEntrada: "", dataSaida: "", negocio: "", detalhes: "", ...position, status: position.status || (hasExit ? "Fechada" : "Aberta") };
+  return { dataEntrada: "", dataSaida: "", negocio: "", detalhes: "", referenciaBolsa: "", ...position, status: position.status || (hasExit ? "Fechada" : "Aberta") };
 }
 
 function isClosed(position) {
@@ -371,7 +373,12 @@ export default function Dashboard() {
     setSyncStatus("Salvando na base Confinex...");
     saveTimerRef.current = window.setTimeout(async () => {
       try {
-        await saveDbPositions(positions);
+        const resultado = await saveDbPositions(positions);
+        const atualizadas = aplicarReferenciasPersistidas(positions, resultado?.registros);
+        if (atualizadas !== positions) {
+          controleGravacaoRef.current.marcarRecargaSomenteLeitura();
+          setPositions(atualizadas);
+        }
         setSyncStatus(`Sincronizado com a base Confinex em ${fmtDateTime(new Date().toISOString())}`);
       } catch (err) {
         setSyncStatus(`Não consegui salvar na base agora (${err?.message || "erro"}). Mantive uma cópia neste aparelho.`);
@@ -618,7 +625,14 @@ export default function Dashboard() {
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     setSyncStatus("Salvando alteração na base Confinex...");
     try {
-      if (dbConnected) await saveDbPositions(positions);
+      if (dbConnected) {
+        const resultado = await saveDbPositions(positions);
+        const atualizadas = aplicarReferenciasPersistidas(positions, resultado?.registros);
+        if (atualizadas !== positions) {
+          controleGravacaoRef.current.marcarRecargaSomenteLeitura();
+          setPositions(atualizadas);
+        }
+      }
       setEditingOpenIds((current) => current.filter((editingId) => editingId !== id));
       setSyncStatus(dbConnected
         ? `Alteração salva na base Confinex em ${fmtDateTime(new Date().toISOString())}`
@@ -751,6 +765,8 @@ export default function Dashboard() {
           font-size: 10px;
           line-height: 1.1;
         }
+        .reference-code { color: #0f766e; font-weight: 800; white-space: nowrap; }
+        .entry-date { color: #64748b; font-size: 10px; line-height: 1.2; margin-top: 2px; white-space: nowrap; }
         .quotes-calendar-scroll { width: 100%; overflow-x: auto; padding-bottom: 3px; }
         .quotes-year { min-width: 1060px; margin-top: 9px; }
         .quotes-year:first-child { margin-top: 0; }
@@ -849,6 +865,7 @@ export default function Dashboard() {
           <div style={{ overflowX: "auto" }}>
             <table className="data-table">
               <colgroup>
+                <col style={{ width: 88 }} />
                 <col style={{ width: 78 }} />
                 <col style={{ width: 84 }} />
                 <col style={{ width: 48 }} />
@@ -860,14 +877,15 @@ export default function Dashboard() {
                 <col style={{ width: 150 }} />
                 <col style={{ width: 60 }} />
               </colgroup>
-              <thead><tr><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th>Entrada</th><th>Atual</th><th>Custos</th><th>Resultado em aberto</th><th className="L">Negócio / Rateio</th><th className="L details-header">Detalhes</th><th></th></tr></thead>
+              <thead><tr><th>Referência</th><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th>Entrada</th><th>Atual</th><th>Custos</th><th>Resultado em aberto</th><th className="L">Negócio / Rateio</th><th className="L details-header">Detalhes</th><th></th></tr></thead>
               <tbody>
                 {openPositions.length ? openPositions.map((position) => (
                   <tr key={`open-${position.id}`} style={positionRowStyle(position.lado)}>
+                    <td><span className="reference-code">{position.referenciaBolsa || "A atribuir"}</span></td>
                     <td className="L" style={{ fontWeight: 700 }}>{position.contrato}</td>
                     <td className="L"><span style={positionBadge(position.lado)}>{position.lado}</span></td>
                     <td>{position.contratos}</td>
-                    <td>R$ {fmtPrice(position.entrada)}</td>
+                    <td>R$ {fmtPrice(position.entrada)}<div className="entry-date">{fmtShortDate(position.dataEntrada)}</div></td>
                     <td>R$ {fmtPrice(position.exit)}</td>
                     <td>{fmtCurrency(position.costs)}</td>
                     <td style={{ color: position.hasMarketResult ? pnlColor(position.net) : "#b45309", fontWeight: 700 }}>{position.hasMarketResult ? fmtResult(position.net) : "Sem cotação"}</td>
@@ -881,7 +899,7 @@ export default function Dashboard() {
                     </td>
                   </tr>
                 )) : (
-                  <tr><td className="L" colSpan="10" style={{ color: "#64748b" }}>Nenhuma posição em aberto.</td></tr>
+                  <tr><td className="L" colSpan="11" style={{ color: "#64748b" }}>Nenhuma posição em aberto.</td></tr>
                 )}
               </tbody>
             </table>
@@ -894,6 +912,7 @@ export default function Dashboard() {
           <div style={{ overflowX: "auto" }}>
             <table className="edit-table">
               <colgroup>
+                <col style={{ width: 92 }} />
                 <col style={{ width: 128 }} />
                 <col style={{ width: 106 }} />
                 <col style={{ width: 52 }} />
@@ -907,10 +926,11 @@ export default function Dashboard() {
                 <col style={{ width: 130 }} />
                 <col style={{ width: 72 }} />
               </colgroup>
-              <thead><tr><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th className="L">Datas</th><th className="L">Preços</th><th>Atual</th><th>Custos/@</th><th>Status</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th><th>Resultado</th><th></th></tr></thead>
+              <thead><tr><th>Referência</th><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th className="L">Datas</th><th className="L">Preços</th><th>Atual</th><th>Custos/@</th><th>Status</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th><th>Resultado</th><th></th></tr></thead>
               <tbody>
                 {openPositions.some((position) => editingOpenIdSet.has(position.id)) ? openPositions.filter((position) => editingOpenIdSet.has(position.id)).map((position) => (
                   <tr key={position.id} style={positionRowStyle(position.lado)}>
+                    <td><span className="reference-code">{position.referenciaBolsa || "A atribuir"}</span></td>
                     <td className="L">
                       <div className="stacked-cell">
                         <select value={parseContrato(position.contrato).codigo} onChange={(event) => updatePosition(position.id, "contrato", buildContrato(event.target.value, parseContrato(position.contrato).ano))} style={compactCellInputStyle}>
@@ -954,7 +974,7 @@ export default function Dashboard() {
                     </td>
                   </tr>
                 )) : (
-                  <tr><td className="L" colSpan="12" style={{ color: "#64748b" }}>Clique em Editar em uma posição aberta para corrigir seus dados.</td></tr>
+                  <tr><td className="L" colSpan="13" style={{ color: "#64748b" }}>Clique em Editar em uma posição aberta para corrigir seus dados.</td></tr>
                 )}
               </tbody>
             </table>
@@ -978,6 +998,7 @@ export default function Dashboard() {
           <div style={{ overflowX: "auto" }}>
             <table className="history-table">
               <colgroup>
+                <col style={{ width: 88 }} />
                 <col style={{ width: 78 }} />
                 <col style={{ width: 84 }} />
                 <col style={{ width: 48 }} />
@@ -992,12 +1013,13 @@ export default function Dashboard() {
                 <col style={{ width: 140 }} />
                 <col style={{ width: 56 }} />
               </colgroup>
-              <thead><tr><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th>Entrada</th><th>Saída</th><th>Data<br />saída</th><th>Corretora</th><th>Finpec</th><th>Resultado</th><th>Ganho/<br />Perda</th><th className="L">Negócio /<br />Rateio</th><th className="L">Detalhes</th><th></th></tr></thead>
+              <thead><tr><th>Referência</th><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th>Entrada</th><th>Saída</th><th>Data<br />saída</th><th>Corretora</th><th>Finpec</th><th>Resultado</th><th>Ganho/<br />Perda</th><th className="L">Negócio /<br />Rateio</th><th className="L">Detalhes</th><th></th></tr></thead>
               <tbody>
                 {closedPositions.length ? closedPositions.map((position) => {
                   const editing = editingClosedIdSet.has(position.id);
                   return (
                     <tr key={`history-${position.id}`} style={positionRowStyle(position.lado)}>
+                      <td><span className="reference-code">{position.referenciaBolsa || "A atribuir"}</span></td>
                       <td className="L" style={{ fontWeight: 700 }}>
                         {editing ? (
                           <div className="stacked-cell">
@@ -1040,7 +1062,7 @@ export default function Dashboard() {
                     </tr>
                   );
                 }) : (
-                  <tr><td className="L" colSpan="13" style={{ color: "#64748b" }}>Preencha a saída ou marque a posição como fechada para aparecer no histórico.</td></tr>
+                  <tr><td className="L" colSpan="14" style={{ color: "#64748b" }}>Preencha a saída ou marque a posição como fechada para aparecer no histórico.</td></tr>
                 )}
               </tbody>
             </table>
@@ -1063,6 +1085,7 @@ export default function Dashboard() {
 
         <section style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 14, marginTop: 16 }}>
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Nova posição</h2>
+          <div style={{ fontSize: 12, color: "#64748b", margin: "-4px 0 10px" }}>A referência sequencial B3-AA-NNN será criada automaticamente ao salvar e poderá ser citada nas conversas com a mesa.</div>
           <div className="new-position-grid">
             <select value={parseContrato(draft.contrato).codigo} onChange={(event) => updateDraft("contrato", buildContrato(event.target.value, parseContrato(draft.contrato).ano))} style={inputStyle} title="Mês de vencimento">
               {MES_CODIGOS.map((m) => <option key={m.code} value={m.code}>{m.label} ({m.code})</option>)}

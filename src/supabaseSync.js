@@ -73,7 +73,7 @@ resultado = Math.round((bruto - corretoraTotal - finpecTotal) * 100) / 100;
 const categoriaOriginal = String(p.categoria || "").toLowerCase();
 const especulacao = categoriaOriginal === "especulacao"
 || (!categoriaOriginal && /espec/i.test(String(p.negocio || "")));
-return {
+const row = {
 termo: Object.prototype.hasOwnProperty.call(p, "termoPersistido")
 ? p.termoPersistido
 : `bgp:${p.id}`,
@@ -95,6 +95,11 @@ negocio_rateio: p.negocio || null,
 obs: null,
 origem: "bgi-portfolio",
 };
+// O campo só é enviado quando já existe. Assim o gatilho do banco pode criar
+// a referência na primeira gravação e a versão continua compatível durante a
+// implantação, antes de a migração aditiva chegar ao Supabase.
+if (p.referenciaBolsa) row.referencia_bolsa = p.referenciaBolsa;
+return row;
 }
 
 export function rowToApp(r) {
@@ -119,6 +124,7 @@ status: r.status === "aberta" ? "Aberta" : "Fechada",
 categoria: r.categoria || (/espec/i.test(String(r.negocio_rateio || "")) ? "especulacao" : "hedge"),
 negocio: r.negocio_rateio || "",
 detalhes: r.detalhes || (isBgp ? "" : (r.obs || "")),
+referenciaBolsa: r.referencia_bolsa || "",
 };
 }
 
@@ -243,7 +249,7 @@ if (gravacoesPorTermo.length) {
 const { data, error } = await db
 .from("posicoes_hedge")
 .upsert(gravacoesPorTermo, { onConflict: "termo" })
-.select("id, termo, status, resultado_realizado, negocio_rateio, contratos_qtd");
+.select("*");
 if (error) throw new Error(error.message);
 saved.push(...(data || []));
 }
@@ -256,7 +262,7 @@ const { data, error } = await db
 .from("posicoes_hedge")
 .update(atualizacao.row)
 .eq("id", atualizacao.id)
-.select("id, termo, status, resultado_realizado, negocio_rateio, contratos_qtd")
+.select("*")
 .maybeSingle();
 if (error) throw new Error(error.message);
 if (data) saved.push(data);
@@ -283,7 +289,7 @@ resultado_creditado: row.status === "encerrada" && row.resultado_realizado != nu
 : null,
 })));
 }
-return { ok: true };
+return { ok: true, registros: saved };
 }
 
 // ---------- exclusão ----------

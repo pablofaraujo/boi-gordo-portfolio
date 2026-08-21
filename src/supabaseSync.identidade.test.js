@@ -68,6 +68,13 @@ describe("identidade persistente das posições", () => {
     expect(plano.atualizacoesPorId).toHaveLength(0);
     expect(plano.gravacoesPorTermo).toHaveLength(1);
     expect(plano.gravacoesPorTermo[0].termo).toBe("bgp:nova-posicao");
+    expect(plano.gravacoesPorTermo[0]).not.toHaveProperty("referencia_bolsa");
+  });
+
+  test("preserva a referência sequencial recebida do banco", () => {
+    const position = rowToApp({ ...LEGADO, referencia_bolsa: "B3-26-001" });
+    expect(position.referenciaBolsa).toBe("B3-26-001");
+    expect(appToRow(position).referencia_bolsa).toBe("B3-26-001");
   });
 
   test("categoria de especulação não vira hedge ao salvar novamente", () => {
