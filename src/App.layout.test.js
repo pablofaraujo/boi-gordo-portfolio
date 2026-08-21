@@ -61,9 +61,12 @@ describe("layout compacto das posições em aberto", () => {
     expect(fonte).not.toContain("const totalNet = openNet + closedNet");
   });
 
-  test("reserva dez colunas compactas e mais espaço para detalhes", () => {
+  test("mostra referência sequencial e data de entrada nas posições abertas", () => {
     const tabela = fonte.match(/<table className="data-table">([\s\S]*?)<\/table>/)?.[1] || "";
-    expect(tabela.match(/<col style=/g)).toHaveLength(10);
+    expect(tabela.match(/<col style=/g)).toHaveLength(11);
+    expect(tabela).toContain("Referência");
+    expect(tabela).toContain('position.referenciaBolsa || "A atribuir"');
+    expect(tabela).toContain("fmtShortDate(position.dataEntrada)");
     expect(tabela).toContain('<col style={{ width: 150 }} />');
     expect(tabela).toContain('<col style={{ width: 60 }} />');
   });
@@ -79,7 +82,9 @@ describe("layout compacto das posições em aberto", () => {
     expect(fonte).toMatch(/\.history-table thead th,[\s\S]*?\.history-table thead th\.L \{[\s\S]*?text-align: center;[\s\S]*?vertical-align: middle;/);
     expect(fonte).toContain(".history-table td:not(.details-cell) { white-space: nowrap; }");
     const historico = fonte.match(/<table className="history-table">([\s\S]*?)<\/table>/)?.[1] || "";
-    expect(historico.match(/<col style=/g)).toHaveLength(13);
+    expect(historico.match(/<col style=/g)).toHaveLength(14);
+    expect(historico).toContain("Referência");
+    expect(historico).toContain('position.referenciaBolsa || "A atribuir"');
     expect(historico).toContain('<col style={{ width: 140 }} />');
     expect(historico).toContain("Ganho/<br />Perda");
     expect(historico).toContain("Negócio /<br />Rateio");
