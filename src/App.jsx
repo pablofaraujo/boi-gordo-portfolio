@@ -214,6 +214,27 @@ function isClosed(position) {
   return position.status === "Fechada" || (position.saida !== "" && position.saida !== null && position.saida !== undefined);
 }
 
+// A saída só é gravada quando a edição TERMINA (sair do campo ou Enter).
+// Gravar a cada tecla fechava a posição no primeiro dígito: a linha sumia
+// da tabela de abertas com o número pela metade e era preciso terminar a
+// digitação lá nos negócios fechados.
+function CampoSaida({ valor, sugestao, style, onCommit }) {
+  const [rascunho, setRascunho] = useState(valor ?? "");
+  useEffect(() => { setRascunho(valor ?? ""); }, [valor]);
+  return (
+    <input
+      value={rascunho}
+      onChange={(event) => setRascunho(event.target.value)}
+      onBlur={() => { if (rascunho !== (valor ?? "")) onCommit(rascunho); }}
+      onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
+      style={style}
+      type="number"
+      step="0.01"
+      placeholder={sugestao}
+    />
+  );
+}
+
 function outcomeLabel(value) {
   if (value > 0) return "Ganho";
   if (value < 0) return "Perda";
@@ -952,7 +973,7 @@ export default function Dashboard() {
                     <td className="price-cell">
                       <div className="stacked-cell">
                         <label className="stacked-field"><span className="stacked-label">Ent.</span><input value={position.entrada} onChange={(event) => updatePosition(position.id, "entrada", event.target.value)} style={cellInputStyle} type="number" step="0.01" /></label>
-                        <label className="stacked-field"><span className="stacked-label">Saída</span><input value={position.saida} onChange={(event) => updatePosition(position.id, "saida", event.target.value)} style={cellInputStyle} type="number" step="0.01" placeholder={fmtPrice(position.exit)} /></label>
+                        <label className="stacked-field"><span className="stacked-label">Saída</span><CampoSaida valor={position.saida} sugestao={fmtPrice(position.exit)} style={cellInputStyle} onCommit={(novoValor) => updatePosition(position.id, "saida", novoValor)} /></label>
                       </div>
                     </td>
                     <td>{fmtPrice(position.exit)}<div style={{ color: "#94a3b8", fontSize: 10 }}>{position.source}</div></td>
