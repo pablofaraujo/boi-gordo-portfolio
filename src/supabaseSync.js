@@ -92,8 +92,8 @@ resultado_realizado: resultado,
 mes: p.mes || mesDoContrato(p.contrato),
 detalhes: p.detalhes || null,
 negocio_rateio: p.negocio || null,
-obs: null,
-origem: "bgi-portfolio",
+obs: Object.prototype.hasOwnProperty.call(p, "obs") ? p.obs : (p.registroOriginal?.obs ?? null),
+origem: Object.prototype.hasOwnProperty.call(p, "origem") ? p.origem : (p.registroOriginal?.origem ?? "bgi-portfolio"),
 };
 // O campo só é enviado quando já existe. Assim o gatilho do banco pode criar
 // a referência na primeira gravação e a versão continua compatível durante a
@@ -106,6 +106,16 @@ export function rowToApp(r) {
 const isBgp = String(r.termo || "").startsWith("bgp:");
 const cts = Number(r.contratos_qtd) || 0;
 const perArroba = (total) => (cts ? Math.round(((Number(total) || 0) / (cts * LOTE)) * 100) / 100 : 0);
+const registroOriginal = {
+termo: r.termo ?? null, contrato: r.contrato ?? null, direcao: r.direcao ?? null,
+categoria: r.categoria ?? null, contratos_qtd: r.contratos_qtd ?? null,
+preco_entrada: r.preco_entrada ?? null, preco_saida: r.preco_saida ?? null,
+data_entrada: r.data_entrada ?? null, data_saida: r.data_saida ?? null,
+status: r.status ?? null, custo_corretagem: r.custo_corretagem ?? null,
+custo_finpec: r.custo_finpec ?? null, resultado_realizado: r.resultado_realizado ?? null,
+mes: r.mes ?? null, detalhes: r.detalhes ?? null, negocio_rateio: r.negocio_rateio ?? null,
+obs: r.obs ?? null, origem: r.origem ?? null, referencia_bolsa: r.referencia_bolsa ?? null,
+};
 return {
 id: isBgp ? r.termo.slice(4) : `db-${r.id}`,
 registroPersistidoId: r.id || null,
@@ -120,11 +130,14 @@ dataEntrada: r.data_entrada || "",
 dataSaida: r.data_saida || "",
 corretora: perArroba(r.custo_corretagem),
 finpec: perArroba(r.custo_finpec),
-status: r.status === "aberta" ? "Aberta" : "Fechada",
+status: ["aberta", "rolada"].includes(r.status) ? "Aberta" : "Fechada",
 categoria: r.categoria || (/espec/i.test(String(r.negocio_rateio || "")) ? "especulacao" : "hedge"),
 negocio: r.negocio_rateio || "",
 detalhes: r.detalhes || (isBgp ? "" : (r.obs || "")),
 referenciaBolsa: r.referencia_bolsa || "",
+origem: r.origem ?? null,
+registroOriginal,
+identidade: { id: r.id || null, termo: r.termo ?? null },
 };
 }
 
@@ -134,10 +147,12 @@ const gravacoesPorTermo = new Map();
 
 positions.forEach((position) => {
 const row = appToRow(position);
-if (position.registroPersistidoId && !row.termo) {
+if (position.registroPersistidoId) {
 atualizacoesPorId.set(position.registroPersistidoId, {
 id: position.registroPersistidoId,
 row,
+registroOriginal: position.registroOriginal || {},
+position,
 });
 return;
 }
@@ -179,7 +194,7 @@ export async function fetchPositionsFromDb() {
 const { data, error } = await db
 .from("posicoes_hedge")
 .select("*")
-.or("termo.like.bgp:%,and(status.in.(aberta,rolada),origem.is.null)")
+.or("termo.like.bgp:%,origem.eq.bgi-portfolio,and(status.in.(aberta,rolada),origem.is.null)")
 .order("created_at", { ascending: true });
 if (error) throw new Error(error.message);
 return deduplicarPosicoesLidas(data || []).map(rowToApp);
@@ -229,58 +244,134 @@ return { prices, updatedAt, source };
 }
 
 // ---------- gravação ----------
-// IMPORTANTE: esta função é chamada em auto-save (debounced) a cada alteração
-// de qualquer posição na tela. Ela só faz UPSERT (insere/atualiza) das
-// posições atualmente no estado local — nunca apaga nada. Apagar por
-// "ausência no array local" é perigoso: se o estado local do navegador
-// estiver desatualizado (aba aberta há tempo, sincronização não concluída,
-// etc.), qualquer edição de um campo dispara o auto-save e apagaria posições
-// reais que só existem no banco. A exclusão de uma posição é feita de forma
-// explícita e imediata por deletePositionFromDb(), chamada só quando o
-// usuário clica em "Excluir".
-export async function savePositionsToDb(positions) {
+// A fila envia somente posições editadas. Existentes usam ID e comparação
+// atômica dos valores lidos; novos usam chave estável sem sobrescrever conflito.
+// Ausência no array nunca exclui uma posição da base.
+export async function savePositionsToDb(positions, clientOverride) {
+const client = clientOverride || db;
 // O estado local pode conter a mesma posição duas vezes após importar ou
 // recuperar uma aba antiga. O Postgres rejeita chaves repetidas dentro do
 // mesmo UPSERT; a versão mais recente da posição deve prevalecer.
 const { atualizacoesPorId, gravacoesPorTermo } = separarPosicoesParaPersistencia(positions);
 const saved = [];
 
-if (gravacoesPorTermo.length) {
-const { data, error } = await db
-.from("posicoes_hedge")
-.upsert(gravacoesPorTermo, { onConflict: "termo" })
-.select("*");
+const CAMPOS = ["termo", "contrato", "direcao", "categoria", "contratos_qtd",
+"preco_entrada", "preco_saida", "data_entrada", "data_saida", "status",
+"custo_corretagem", "custo_finpec", "resultado_realizado", "mes", "detalhes",
+"negocio_rateio", "obs", "origem", "referencia_bolsa"];
+const ALLOC_FIELDS = new Set(["negocio_rateio", "contratos_qtd", "status", "resultado_realizado"]);
+const semUndefined = (row) => Object.fromEntries(Object.entries(row).filter(([, value]) => value !== undefined));
+const igual = (a, b) => (a == null && b == null) || String(a) === String(b);
+const rowDesejado = (row) => semUndefined(Object.fromEntries(CAMPOS.map((key) => [key, row[key]])));
+const rowConfere = (actual, desired) => CAMPOS.every((key) => desired[key] === undefined || igual(actual?.[key], desired[key]));
+const originalMatch = (query, original) => {
+for (const key of CAMPOS) {
+const value = original?.[key];
+if (value === undefined) continue;
+query = value === null ? query.is(key, null) : query.eq(key, value);
+}
+return query;
+};
+const conflito = () => new Error("Conflito: a posição mudou na base; recarregue antes de salvar.");
+const confirmarPorTermo = async (row) => {
+const { data, error } = await client.from("posicoes_hedge").select("*").eq("termo", row.termo).maybeSingle();
 if (error) throw new Error(error.message);
-saved.push(...(data || []));
+if (!data || !rowConfere(data, row)) throw conflito();
+return data;
+};
+
+for (const row of gravacoesPorTermo) {
+const desejado = rowDesejado(row);
+const { data, error } = await client.from("posicoes_hedge")
+.upsert([desejado], { onConflict: "termo", ignoreDuplicates: true })
+.select("*").maybeSingle();
+if (error) throw new Error(error.message);
+if (data && (!data.id || !rowConfere(data, desejado))) throw new Error("A base não confirmou a nova posição enviada. Confira antes de tentar novamente.");
+saved.push(data || await confirmarPorTermo(desejado));
 }
 
 // Registros antigos sem termo não podem passar por UPSERT: NULL não entra no
 // conflito único e produziria uma nova linha. A identidade original do banco
 // é preservada e a alteração ocorre pelo ID já existente.
 for (const atualizacao of atualizacoesPorId) {
-const { data, error } = await db
-.from("posicoes_hedge")
-.update(atualizacao.row)
-.eq("id", atualizacao.id)
-.select("*")
-.maybeSingle();
+const original = atualizacao.registroOriginal || {};
+if (!Object.keys(original).length) throw conflito();
+const originalApp = rowToApp({ ...original, id: atualizacao.id });
+const normalizadoOriginal = appToRow(originalApp);
+const desired = rowDesejado(atualizacao.row);
+// Compare o que o usuário realmente editou, não conversões de exibição
+// (ex.: custo total convertido para R$/@ com duas casas ou mês preenchido).
+const changed = Object.fromEntries(Object.entries(desired).filter(([key, value]) => !igual(value, normalizadoOriginal[key])));
+// Ao assumir uma edição legada sem origem, mantém o registro consultável
+// também depois de encerrado (sem criar uma segunda posição bgp).
+if (Object.keys(changed).length && original.termo == null && original.origem == null) changed.origem = "bgi-portfolio";
+const entradasFinanceiras = ["direcao", "contratos_qtd", "preco_entrada", "preco_saida", "status", "custo_corretagem", "custo_finpec"];
+const recalcular = entradasFinanceiras.some((key) => Object.prototype.hasOwnProperty.call(changed, key));
+delete changed.resultado_realizado;
+for (const [rowField, appField] of [["custo_corretagem", "corretora"], ["custo_finpec", "finpec"]]) {
+  if (igual(atualizacao.position[appField], originalApp[appField])) {
+    if (igual(desired.contratos_qtd, original.contratos_qtd)) delete changed[rowField];
+    else if (toNumber(original.contratos_qtd)) changed[rowField] = toNumber(original[rowField]) / toNumber(original.contratos_qtd) * desired.contratos_qtd || null;
+  }
+}
+if (recalcular) {
+  const final = { ...original, ...changed };
+  if (final.status === "encerrada" && final.preco_saida != null) {
+    const bruto = final.direcao === "termo" ? 0 : (final.direcao === "vendido" ? 1 : -1)
+      * (toNumber(final.preco_entrada) - toNumber(final.preco_saida)) * toNumber(final.contratos_qtd) * LOTE;
+    changed.resultado_realizado = Math.round((bruto - toNumber(final.custo_corretagem) - toNumber(final.custo_finpec)) * 100) / 100;
+  } else changed.resultado_realizado = null;
+}
+const esperado = { ...original, ...changed };
+if (!Object.keys(changed).length) {
+const { data, error } = await client.from("posicoes_hedge").select("*").eq("id", atualizacao.id).maybeSingle();
 if (error) throw new Error(error.message);
-if (data) saved.push(data);
+if (!data || !rowConfere(data, esperado)) throw conflito();
+saved.push(data);
+continue;
+}
+let query = client.from("posicoes_hedge").update(changed).eq("id", atualizacao.id);
+query = originalMatch(query, original);
+const { data, error } = await query.select("*").maybeSingle();
+if (error) throw new Error(error.message);
+if (data) {
+if (data.id !== atualizacao.id || !rowConfere(data, esperado)) throw new Error("A base não confirmou os valores enviados. Confira antes de tentar novamente.");
+saved.push(data);
+}
+else {
+const { data: current, error: lookupError } = await client.from("posicoes_hedge").select("*").eq("id", atualizacao.id).maybeSingle();
+if (lookupError) throw new Error(lookupError.message);
+if (!current || !rowConfere(current, esperado)) throw conflito();
+saved.push(current);
+}
 }
 
 // alocações a partir do campo "Negócio / Rateio" (ex.: "CF-26-009: 3; CF-26-010: 2")
 for (const row of saved || []) {
-await db.from("alocacoes_hedge").delete().eq("posicao_id", row.id);
+const source = positions.find((position) => (position.registroPersistidoId || null) === row.id || (row.termo && appToRow(position).termo === row.termo));
+const original = source?.registroOriginal || null;
+const allocationChanged = !original || [...ALLOC_FIELDS].some((key) => !igual(row[key], original[key]));
+if (!allocationChanged) continue;
 const texto = row.negocio_rateio || "";
 const rateios = extrairRateiosNegocio(texto, row.contratos_qtd);
+let ops = [];
+if (rateios.length) {
+const result = await client.from("operacoes").select("id, codigo").in("codigo", rateios.map((item) => item.codigo));
+if (result.error) throw new Error(result.error.message);
+ops = result.data || [];
+const encontrados = new Set(ops.map((o) => o.codigo));
+const ausentes = rateios.map((p) => p.codigo).filter((codigo) => !encontrados.has(codigo));
+if (ausentes.length) throw new Error(`Rateio não confirmado na base: ${ausentes.join(", ")}. Nenhuma alocação foi alterada.`);
+}
+const { error: deleteError } = await client.from("alocacoes_hedge").delete().eq("posicao_id", row.id);
+if (deleteError) throw new Error(deleteError.message);
 if (!rateios.length) continue;
-const { data: ops } = await db.from("operacoes").select("id, codigo").in("codigo", rateios.map((item) => item.codigo));
 const opPorCodigo = Object.fromEntries((ops || []).map((o) => [o.codigo, o.id]));
 const partes = rateios
 .filter((p) => opPorCodigo[p.codigo]);
 if (!partes.length) continue;
 const totalFinal = partes.reduce((s, p) => s + (p.cts || 0), 0) || 1;
-await db.from("alocacoes_hedge").insert(partes.map((p) => ({
+const { error: allocationError } = await client.from("alocacoes_hedge").insert(partes.map((p) => ({
 posicao_id: row.id,
 operacao_id: opPorCodigo[p.codigo],
 contratos_qtd: p.cts || 0,
@@ -288,6 +379,7 @@ resultado_creditado: row.status === "encerrada" && row.resultado_realizado != nu
 ? Math.round(row.resultado_realizado * ((p.cts || 0) / totalFinal) * 100) / 100
 : null,
 })));
+if (allocationError) throw new Error(allocationError.message);
 }
 return { ok: true, registros: saved };
 }
@@ -300,9 +392,11 @@ let consulta = db.from("posicoes_hedge").select("id");
 consulta = referencia?.id
 ? consulta.eq("id", referencia.id)
 : consulta.eq("termo", referencia?.termo || referencia);
-const { data: existing } = await consulta.maybeSingle();
+const { data: existing, error: lookupError } = await consulta.maybeSingle();
+if (lookupError) throw new Error(lookupError.message);
 if (!existing) return { deleted: false };
-await db.from("alocacoes_hedge").delete().eq("posicao_id", existing.id);
+const { error: allocationError } = await db.from("alocacoes_hedge").delete().eq("posicao_id", existing.id);
+if (allocationError) throw new Error(allocationError.message);
 const { error } = await db.from("posicoes_hedge").delete().eq("id", existing.id);
 if (error) throw new Error(error.message);
 return { deleted: true };

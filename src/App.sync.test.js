@@ -4,20 +4,18 @@ import path from "path";
 describe("contrato de recarga das posições", () => {
   const fonte = fs.readFileSync(path.join(__dirname, "App.jsx"), "utf8");
 
-  test("a abertura e o botão marcam a leitura antes de trocar as posições", () => {
+  test("a abertura e o botão registram a base confirmada antes de trocar as posições", () => {
     const trechosProtegidos = fonte.match(
-      /marcarRecargaSomenteLeitura\(\);\s*setPositions\(remotePositions\)/g,
+      /carregar\(remotePositions(?:, \{ descartarEdicao \})?\);\s*positionsRef.current = remotePositions;\s*setPositions\(remotePositions\)/g,
     ) || [];
 
     expect(trechosProtegidos).toHaveLength(2);
   });
 
-  test("o salvamento automático consome o bloqueio antes de gravar", () => {
-    const bloqueio = fonte.indexOf("consumirBloqueioDeGravacao()");
-    const gravacao = fonte.indexOf("await saveDbPositions(positions)");
-
-    expect(bloqueio).toBeGreaterThan(-1);
-    expect(gravacao).toBeGreaterThan(bloqueio);
+  test("salvamentos usam a fila e nunca enviam o array inteiro nem semeiam a base vazia", () => {
+    expect(fonte).toContain("await controleGravacaoRef.current.salvar()");
+    expect(fonte).not.toContain("await saveDbPositions(positions)");
+    expect(fonte).not.toContain("Base inicial salva");
   });
 
   test("a interface descreve a ação como recarga da base", () => {
