@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { hasSession, fetchPositionsFromDb, fetchHedgeExposureFromDb, fetchLatestQuotesFromDb, savePositionsToDb, saveQuotesToDb, deletePositionFromDb } from "./supabaseSync";
+import { appToRow, hasSession, fetchPositionsFromDb, fetchHedgeExposureFromDb, fetchLatestQuotesFromDb, savePositionsToDb, saveQuotesToDb, deletePositionFromDb } from "./supabaseSync";
 import { criarControleGravacao } from "./controleGravacao";
 import { ordenarPosicoesPorVencimento } from "./ordenacaoPosicoes";
 import { calcularResumoCobertura, calcularResumoExibicao } from "./resumoCobertura";
 import { cotacaoEncerrada, montarCalendarioCotacoes, precoCotacaoCalendario } from "./calendarioCotacoes";
-import { aplicarReferenciasPersistidas } from "./referenciaBolsa";
 
 const LOTE = 330;
 const STORAGE_KEY = "bgi-portfolio-positions-v1";
@@ -383,41 +382,88 @@ export default function Dashboard() {
   const [hedgeExposure, setHedgeExposure] = useState(null);
   const hydratedRef = useRef(false);
   const saveTimerRef = useRef(null);
-  const controleGravacaoRef = useRef(criarControleGravacao());
+  const recargaEmCursoRef = useRef(false);
+  const positionsRef = useRef(positions);
+  const controleGravacaoRef = useRef(null);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  if (!controleGravacaoRef.current) {
+    controleGravacaoRef.current = criarControleGravacao({
+      gravar: saveDbPositions,
+      assinatura: (posicao) => JSON.stringify(appToRow(normalizePosition(posicao))),
+      aoConfirmar: (atuais) => {
+        positionsRef.current = atuais;
+        setPositions(atuais);
+      },
+    });
+  }
   const prices = useMemo(() => ({ ...marketQuotes.prices }), [marketQuotes]);
 
-  useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(positions));
-    if (controleGravacaoRef.current.consumirBloqueioDeGravacao()) return;
-    if (!hydratedRef.current || !dbConnected) return;
+  function alterarPosicoes(alterar) {
+    if (!hydratedRef.current || !dbConnected || syncLoading || recargaEmCursoRef.current) {
+      setSaveError("Aguarde a leitura da base e confirme o login antes de editar.");
+      return;
+    }
+    const atuais = alterar(positionsRef.current);
+    controleGravacaoRef.current.atualizar(atuais);
+    positionsRef.current = atuais;
+    setPositions(atuais);
+    setSaveError("");
+  }
+
+  async function salvarAlteracoes() {
+    if (recargaEmCursoRef.current) return false;
+    if (!dbConnected || !hydratedRef.current) {
+      setSaveError("A alteração ainda não foi salva na base. Confirme o login antes de continuar.");
+      return false;
+    }
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-    setSyncStatus("Salvando na base Confinex...");
-    saveTimerRef.current = window.setTimeout(async () => {
-      try {
-        const resultado = await saveDbPositions(positions);
-        const atualizadas = aplicarReferenciasPersistidas(positions, resultado?.registros);
-        if (atualizadas !== positions) {
-          controleGravacaoRef.current.marcarRecargaSomenteLeitura();
-          setPositions(atualizadas);
-        }
-        setSyncStatus(`Sincronizado com a base Confinex em ${fmtDateTime(new Date().toISOString())}`);
-      } catch (err) {
-        setSyncStatus(`Não consegui salvar na base agora (${err?.message || "erro"}). Mantive uma cópia neste aparelho.`);
-      }
-    }, 900);
+    setSaveLoading(true);
+    setSaveError("");
+    setSyncStatus("Salvando alterações na base Confinex...");
+    try {
+      await controleGravacaoRef.current.salvar();
+      setSyncStatus(`Alterações confirmadas na base Confinex em ${fmtDateTime(new Date().toISOString())}`);
+      return true;
+    } catch (err) {
+      setSaveError(`Não foi possível confirmar o salvamento. ${err?.message || "Verifique a conexão e tente novamente."} A edição foi preservada neste aparelho.`);
+      setSyncStatus("Há alterações ainda não confirmadas na base.");
+      return false;
+    } finally {
+      setSaveLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    // Cópia de conferência, nunca fonte para substituir automaticamente a base.
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(positions)); } catch { /* base permanece canônica */ }
+    if (!hydratedRef.current || !dbConnected || saveError || recargaEmCursoRef.current) return;
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    if (controleGravacaoRef.current.temPendencias()) {
+      saveTimerRef.current = window.setTimeout(salvarAlteracoes, 900);
+    }
     return () => {
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     };
-  }, [positions, dbConnected]);
+    // A fila lê a edição atual por referência, sem enviar snapshots antigos.
+  }, [positions, dbConnected, saveError]);
+
+  useEffect(() => {
+    const avisarAntesDeSair = (event) => {
+      if (!controleGravacaoRef.current.temPendencias()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", avisarAntesDeSair);
+    return () => window.removeEventListener("beforeunload", avisarAntesDeSair);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     async function hydrateFromDb() {
       const logged = await hasSession();
       if (cancelled) return;
-      setDbConnected(logged);
       if (!logged) {
-        hydratedRef.current = true;
         setSyncStatus("Sem login na base. Abra o Painel, faça login e recarregue esta página.");
         return;
       }
@@ -442,20 +488,17 @@ export default function Dashboard() {
         }
         const remotePositions = await fetchDbPositions();
         if (cancelled) return;
-        if (remotePositions.length) {
-          controleGravacaoRef.current.marcarRecargaSomenteLeitura();
-          setPositions(remotePositions);
-          window.localStorage.setItem(STORAGE_KEY, JSON.stringify(remotePositions));
-          setSyncStatus(`Carregado da base Confinex em ${fmtDateTime(new Date().toISOString())}`);
-        } else {
-          setSyncStatus("Base vazia. Salvando as posições deste aparelho como base inicial...");
-          await saveDbPositions(positions);
-          setSyncStatus(`Base inicial salva no Confinex em ${fmtDateTime(new Date().toISOString())}`);
-        }
+        controleGravacaoRef.current.carregar(remotePositions);
+        positionsRef.current = remotePositions;
+        setPositions(remotePositions);
+        hydratedRef.current = true;
+        setDbConnected(true);
+        setSyncStatus(remotePositions.length
+          ? `Carregado da base Confinex em ${fmtDateTime(new Date().toISOString())}`
+          : "Base consultada: nenhuma posição registrada. Nada foi gravado.");
       } catch (err) {
         if (!cancelled) setSyncStatus(`Não consegui consultar a base agora (${err?.message || "erro"}). Usando a cópia deste aparelho.`);
       } finally {
-        hydratedRef.current = true;
         if (!cancelled) setSyncLoading(false);
       }
     }
@@ -465,12 +508,34 @@ export default function Dashboard() {
     };
   }, []);
 
-  async function recarregarPosicoesDaBase() {
+  async function recarregarPosicoesDaBase(descartarEdicao = false) {
+    if (recargaEmCursoRef.current) return;
+    // onClick envia um evento: somente o booleano explícito autoriza descarte.
+    descartarEdicao = descartarEdicao === true;
+    if (controleGravacaoRef.current.temPendencias() && !descartarEdicao) {
+      setSaveError("Há alterações ainda não confirmadas. Use Salvar alterações antes de recarregar; a edição foi preservada.");
+      return;
+    }
+    if (descartarEdicao) {
+      if (saveLoading || !window.confirm("Consultar a versão atual da base sem aplicar esta edição? A edição não confirmada ficará guardada neste aparelho para conferência.")) return;
+      try {
+        window.localStorage.setItem(`${STORAGE_KEY}-edicao-nao-confirmada`, JSON.stringify({
+          data: new Date().toISOString(), posicoes: positionsRef.current,
+        }));
+      } catch {
+        setSaveError("Não foi possível guardar a edição para conferência. A recarga foi cancelada para preservar seus ajustes.");
+        return;
+      }
+    }
     if (!dbConnected) {
       window.open(PAINEL_URL, "_blank");
       setSyncStatus("Faça login no Painel e recarregue esta página.");
       return;
     }
+    // Depois da confirmação de descarte, nenhum debounce anterior pode
+    // aplicar a edição durante a consulta da versão remota.
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    recargaEmCursoRef.current = true;
     setSyncLoading(true);
     setSyncStatus("Buscando posições na base Confinex...");
     try {
@@ -479,17 +544,15 @@ export default function Dashboard() {
         fetchHedgeExposureFromDb(),
       ]);
       setHedgeExposure(remoteExposure);
-      if (remotePositions.length) {
-        controleGravacaoRef.current.marcarRecargaSomenteLeitura();
-        setPositions(remotePositions);
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(remotePositions));
-        setSyncStatus(`Posições recarregadas da base em ${fmtDateTime(new Date().toISOString())}`);
-      } else {
-        setSyncStatus("Base vazia. Nada foi alterado.");
-      }
+      controleGravacaoRef.current.carregar(remotePositions, { descartarEdicao });
+      positionsRef.current = remotePositions;
+      setPositions(remotePositions);
+      setSaveError("");
+      setSyncStatus(`Posições recarregadas da base em ${fmtDateTime(new Date().toISOString())}`);
     } catch (err) {
       setSyncStatus(`Não consegui buscar na base agora (${err?.message || "erro"}).`);
     } finally {
+      recargaEmCursoRef.current = false;
       setSyncLoading(false);
     }
   }
@@ -604,7 +667,7 @@ export default function Dashboard() {
 
   function addPosition() {
     if (!draft.contrato || !toNumber(draft.contratos) || !toNumber(draft.entrada)) return;
-    setPositions((current) => [...current, { ...draft, id: `${Date.now()}` }]);
+    alterarPosicoes((current) => [...current, { ...draft, id: `${Date.now()}` }]);
     setDraft(emptyDraft);
   }
 
@@ -614,12 +677,12 @@ export default function Dashboard() {
       setImportMessage("Nenhuma posição aberta encontrada no texto colado.");
       return;
     }
-    setPositions((current) => [...current.filter(isClosed), ...imported]);
+    alterarPosicoes((current) => [...current.filter(isClosed), ...imported]);
     setImportMessage(`${imported.length} posições abertas importadas. O histórico fechado foi preservado.`);
   }
 
   function updatePosition(id, field, value) {
-    setPositions((current) => current.map((position) => {
+    alterarPosicoes((current) => current.map((position) => {
       if (position.id !== id) return position;
       const updated = { ...normalizePosition(position), [field]: value, ...(field === "contrato" ? { mes: mesLabelDoContrato(value) } : {}) };
       // Termo não tem "saída" no sentido de B3 (preço fixo único até a
@@ -635,55 +698,60 @@ export default function Dashboard() {
   }
 
   function editClosedPosition(id) {
+    if (!dbConnected || syncLoading) return;
     setEditingClosedIds((current) => (current.includes(id) ? current : [...current, id]));
   }
 
   function editOpenPosition(id) {
+    if (!dbConnected || syncLoading) return;
     setEditingOpenIds((current) => (current.includes(id) ? current : [...current, id]));
   }
 
   async function finishEditingOpenPosition(id) {
-    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-    setSyncStatus("Salvando alteração na base Confinex...");
-    try {
-      if (dbConnected) {
-        const resultado = await saveDbPositions(positions);
-        const atualizadas = aplicarReferenciasPersistidas(positions, resultado?.registros);
-        if (atualizadas !== positions) {
-          controleGravacaoRef.current.marcarRecargaSomenteLeitura();
-          setPositions(atualizadas);
-        }
-      }
+    // O blur pode mudar a altura das tabelas e deslocar o botão entre
+    // pointerdown e click. Primeiro preservamos o clique; agora concluímos
+    // o campo focado, cuja edição atualiza positionsRef antes da gravação.
+    if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur();
+    if (await salvarAlteracoes()) {
       setEditingOpenIds((current) => current.filter((editingId) => editingId !== id));
-      setSyncStatus(dbConnected
-        ? `Alteração salva na base Confinex em ${fmtDateTime(new Date().toISOString())}`
-        : "Alteração salva neste aparelho. Faça login no Painel para sincronizar com a base.");
-    } catch (err) {
-      setSyncStatus(`Não consegui salvar a alteração (${err?.message || "erro"}). Mantive a edição neste aparelho.`);
     }
   }
 
-  function finishEditingPosition(id) {
-    setEditingClosedIds((current) => current.filter((editingId) => editingId !== id));
+  async function finishEditingPosition(id) {
+    if (await salvarAlteracoes()) {
+      setEditingClosedIds((current) => current.filter((editingId) => editingId !== id));
+    }
   }
 
-  function deletePosition(id) {
+  async function deletePosition(id) {
+    if (!dbConnected || syncLoading || controleGravacaoRef.current.temPendencias()) {
+      setSaveError("Salve as alterações pendentes antes de excluir uma posição.");
+      return;
+    }
     const position = positions.find((item) => item.id === id);
     if (!position) return;
     if (!window.confirm(`Excluir a posição ${position.contrato} (${fmtQuantity(position.contratos)} cts)? Esta ação não pode ser desfeita.`)) return;
-    setPositions((current) => current.filter((position) => position.id !== id));
-    setEditingOpenIds((current) => current.filter((editingId) => editingId !== id));
-    setEditingClosedIds((current) => current.filter((editingId) => editingId !== id));
     // Exclusão explícita e imediata no banco — não depende do auto-save nem
     // de diffing do array local (isso é o que causava perda de dados quando
     // o estado local estava desatualizado). Se a posição nunca chegou a ser
     // sincronizada, deletePositionFromDb simplesmente não encontra nada.
     if (dbConnected) {
-      deletePositionFromDb(position.registroPersistidoId
-        ? { id: position.registroPersistidoId }
-        : { termo: `bgp:${id}` }).catch((err) => {
-        setSyncStatus(`Não consegui excluir na base agora (${err?.message || "erro"}). Ao recarregar a posição pode voltar.`);
-      });
+      setSyncLoading(true);
+      try {
+        await deletePositionFromDb(position.registroPersistidoId
+          ? { id: position.registroPersistidoId }
+          : { termo: `bgp:${id}` });
+        const restantes = positionsRef.current.filter((item) => item.id !== id);
+        controleGravacaoRef.current.carregar(restantes);
+        positionsRef.current = restantes;
+        setPositions(restantes);
+        setEditingOpenIds((current) => current.filter((editingId) => editingId !== id));
+        setEditingClosedIds((current) => current.filter((editingId) => editingId !== id));
+      } catch (err) {
+        setSaveError(`Não consegui confirmar a exclusão. ${err?.message || "Tente novamente."}`);
+      } finally {
+        setSyncLoading(false);
+      }
     }
   }
 
@@ -826,6 +894,18 @@ export default function Dashboard() {
           </button>
         </div>
 
+        {(saveError || saveLoading || controleGravacaoRef.current.temPendencias()) && (
+          <div role={saveError ? "alert" : "status"} style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: 12, marginBottom: 16 }}>
+            <div>{saveError || (saveLoading ? "Aguarde a confirmação do salvamento antes de sair." : "Há alterações aguardando confirmação na base.")}</div>
+            <button onClick={salvarAlteracoes} disabled={saveLoading || !dbConnected || syncLoading} style={{ marginTop: 8, padding: "7px 9px", cursor: "pointer" }}>
+              {saveLoading ? "Salvando..." : "Salvar alterações"}
+            </button>
+            {saveError && <button onClick={() => recarregarPosicoesDaBase(true)} disabled={saveLoading || syncLoading || !dbConnected} style={{ marginTop: 8, marginLeft: 8, padding: "7px 9px", cursor: "pointer" }}>
+              Rever versão da base sem aplicar esta edição
+            </button>}
+          </div>
+        )}
+
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 6 }}>
           {[
             ["Bois Confinados", hedgeExposure ? [`${fmtQuantity(resumoExibicao.contratosConfinados)} cts`, `${fmtQuantity(resumoExibicao.arrobasConfinadas)} @`] : ["—"], "#475569"],
@@ -949,7 +1029,7 @@ export default function Dashboard() {
               </colgroup>
               <thead><tr><th>Referência</th><th className="L">Contrato</th><th className="L">Posição</th><th>Contr.</th><th className="L">Datas</th><th className="L">Preços</th><th>Atual</th><th>Custos/@</th><th>Status</th><th className="L">Negócio / Rateio</th><th className="L">Detalhes</th><th>Resultado</th><th></th></tr></thead>
               <tbody>
-                {openPositions.some((position) => editingOpenIdSet.has(position.id)) ? openPositions.filter((position) => editingOpenIdSet.has(position.id)).map((position) => (
+                {enriched.some((position) => editingOpenIdSet.has(position.id)) ? enriched.filter((position) => editingOpenIdSet.has(position.id)).map((position) => (
                   <tr key={position.id} style={positionRowStyle(position.lado)}>
                     <td><span className="reference-code">{position.referenciaBolsa || "A atribuir"}</span></td>
                     <td className="L">
@@ -989,7 +1069,7 @@ export default function Dashboard() {
                     <td style={{ color: position.hasMarketResult ? pnlColor(position.net) : "#b45309", fontWeight: 700 }}>{position.hasMarketResult ? fmtResult(position.net) : "Sem cotação"}</td>
                     <td>
                       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                        <button onClick={() => finishEditingOpenPosition(position.id)} style={{ border: "1px solid #bbf7d0", background: "#f0fdf4", color: "#15803d", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>Salvar alteração</button>
+                        <button onPointerDown={(event) => event.preventDefault()} onClick={() => finishEditingOpenPosition(position.id)} disabled={saveLoading || !dbConnected || syncLoading} style={{ border: "1px solid #bbf7d0", background: "#f0fdf4", color: "#15803d", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>Salvar alteração</button>
                         <button onClick={() => deletePosition(position.id)} style={{ border: "1px solid #fecaca", background: "#fff", color: "#b91c1c", borderRadius: 6, padding: "5px 8px", cursor: "pointer" }}>Excluir</button>
                       </div>
                     </td>
@@ -1073,7 +1153,7 @@ export default function Dashboard() {
                       <td>
                         {editing ? (
                           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                            <button onClick={() => finishEditingPosition(position.id)} style={{ border: "1px solid #bbf7d0", background: "#f0fdf4", color: "#15803d", borderRadius: 6, padding: "5px 7px", cursor: "pointer", fontSize: 11 }}>Concluir</button>
+                            <button onClick={() => finishEditingPosition(position.id)} disabled={saveLoading || !dbConnected || syncLoading} style={{ border: "1px solid #bbf7d0", background: "#f0fdf4", color: "#15803d", borderRadius: 6, padding: "5px 7px", cursor: "pointer", fontSize: 11 }}>Concluir</button>
                             <button onClick={() => deletePosition(position.id)} style={{ border: "1px solid #fecaca", background: "#fff", color: "#b91c1c", borderRadius: 6, padding: "5px 7px", cursor: "pointer", fontSize: 11 }}>Excluir</button>
                           </div>
                         ) : (
