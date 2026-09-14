@@ -16,7 +16,7 @@ const base = () => ['a', 'b', 'c'].map((id, i) => ({
 }));
 
 async function ambiente(context, { semLogin = false } = {}) {
-  const estado = { rows: base(), escritas: [], externas: [], erros: [], pageErrors: [], atraso: 0, falhar: false, perderResposta: false, falharRateio: false, proximoId: 1 };
+  const estado = { rows: base(), escritas: [], externas: [], erros: [], pageErrors: [], atraso: 0, falhar: false, perderResposta: false, falharRateio: false, falharLeitura: false, proximoId: 1 };
   const session = { access_token: `falso.${Buffer.from(JSON.stringify({ exp: 9999999999, sub: 'usuario-teste' })).toString('base64url')}.falso`, refresh_token: 'somente-teste', expires_at: 9999999999, token_type: 'bearer', user: { id: 'usuario-teste' } };
   await context.addInitScript(({ chave, session, semLogin }) => {
     if (location.hostname === '127.0.0.1' && !semLogin && !localStorage.getItem(chave)) localStorage.setItem(chave, JSON.stringify(session));
@@ -47,6 +47,7 @@ async function ambiente(context, { semLogin = false } = {}) {
         if (tabela === 'alocacoes_hedge' && estado.falharRateio) return json({ message: 'Rateio sintético não confirmado', code: '42501' }, 403);
       }
       if (tabela === 'posicoes_hedge') {
+        if (req.method() === 'GET' && estado.falharLeitura) return json({ message: 'Leitura sintética indisponível' }, 503);
         if (req.method() === 'PATCH') {
           estado.rows = estado.rows.map((row) => {
             if (!filtros(row)) return row;
@@ -241,12 +242,27 @@ test('sem login não libera Gravar nem apaga o formulário preenchido', async ({
   const page = await context.newPage();
   await page.goto('/boi-gordo-portfolio/');
   await expect(page.locator('.portfolio-subtitle')).toContainText('Sem login');
+  await expect(page.locator('table').first()).toContainText('Nenhuma posição em aberto.');
   const form = await preencherNova(page);
   await expect(form.getByRole('button', { name: 'Gravar', exact: true })).toBeDisabled();
   await expect(form.getByPlaceholder('Entrada', { exact: true })).toHaveValue('360');
   expect(estado.escritas).toEqual([]);
   expect(estado.erros).toEqual([]);
 });
+
+for (const falharLeitura of [false, true]) {
+  test(`sem posições e sem cache: leitura ${falharLeitura ? 'indisponível' : 'vazia'} nunca mostra exemplos antigos`, async ({ context }) => {
+    const estado = await ambiente(context);
+    estado.rows = []; estado.falharLeitura = falharLeitura;
+    const page = await context.newPage();
+    await page.goto('/boi-gordo-portfolio/');
+    // O cliente real repete GET 503 após 1, 2 e 4 segundos antes de informar a falha.
+    await expect(page.locator('.portfolio-subtitle')).toContainText(falharLeitura ? 'Não consegui consultar' : 'nenhuma posição registrada', { timeout: 12000 });
+    await expect(page.locator('table').first()).toContainText('Nenhuma posição em aberto.');
+    expect(estado.escritas).toEqual([]);
+    expect(estado.pageErrors).toEqual([]);
+  });
+}
 
 test('falha do armazenamento local impede envio e preserva formulário', async ({ context }) => {
   const estado = await ambiente(context);

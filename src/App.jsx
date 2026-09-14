@@ -88,14 +88,9 @@ function mesLabelDoContrato(contrato) {
   return nome ? `${nome}/${ano}` : "";
 }
 
-const DEFAULT_POSITIONS = [
-{ id: "m26-1", contrato: "BGIM26", mes: "Junho/26", lado: "Vendido", contratos: 6, entrada: 348.25, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
-{ id: "n26-1", contrato: "BGIN26", mes: "Julho/26", lado: "Vendido", contratos: 15, entrada: 346.04, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
-{ id: "u26-1", contrato: "BGIU26", mes: "Setembro/26", lado: "Comprado", contratos: 10, entrada: 347.26, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
-{ id: "u26-2", contrato: "BGIU26", mes: "Setembro/26", lado: "Vendido", contratos: 8, entrada: 346.95, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
-{ id: "v26-1", contrato: "BGIV26", mes: "Outubro/26", lado: "Vendido", contratos: 10, entrada: 353.3, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
-{ id: "v26-2", contrato: "BGIV26", mes: "Outubro/26", lado: "Vendido", contratos: 5, entrada: 355, saida: "", dataEntrada: "", dataSaida: "", corretora: 0, finpec: 0, status: "Aberta", negocio: "", detalhes: "" },
-];
+// A base autenticada é a única fonte de posições. Uma sessão limpa começa
+// vazia; nenhum exemplo histórico pode parecer uma posição operacional real.
+const EMPTY_POSITIONS = [];
 
 const emptyDraft = {
   contrato: BGI_INDICES[0].contrato,
@@ -293,13 +288,13 @@ function parsePortfolioImport(text) {
 
 function loadStoredPositions(userId) {
   try {
-    if (!userId) return DEFAULT_POSITIONS;
+    if (!userId) return EMPTY_POSITIONS;
     const raw = window.localStorage.getItem(`${STORAGE_KEY}:${encodeURIComponent(userId)}`);
-    if (!raw) return DEFAULT_POSITIONS;
+    if (!raw) return EMPTY_POSITIONS;
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length ? parsed.map(normalizePosition) : DEFAULT_POSITIONS;
+    return Array.isArray(parsed) ? parsed.map(normalizePosition) : EMPTY_POSITIONS;
   } catch {
-    return DEFAULT_POSITIONS;
+    return EMPTY_POSITIONS;
   }
 }
 
@@ -375,7 +370,7 @@ function assinaturaPosicao(posicao) {
 }
 
 export default function Dashboard() {
-  const [positions, setPositions] = useState(() => DEFAULT_POSITIONS);
+  const [positions, setPositions] = useState(() => EMPTY_POSITIONS);
   const [draft, setDraft] = useState(emptyDraft);
   const [importText, setImportText] = useState("");
   const [importMessage, setImportMessage] = useState("");

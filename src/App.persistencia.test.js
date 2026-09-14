@@ -280,6 +280,19 @@ describe("persistência de posições BGI durante fechamento e recarga", () => {
     expect(gravar.disabled).toBe(true);
     expect(entrada.value).toBe("360");
     expect(mockSincronizacao.savePositionsToDb).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Nenhuma posição em aberto.");
+    expect(container.querySelectorAll(".data-table tbody .open-actions")).toHaveLength(0);
+    expect([...Array(localStorage.length)].map((_, i) => localStorage.key(i)).some((key) => key?.startsWith("bgi-portfolio-positions-v1:"))).toBe(false);
+    act(() => root.unmount());
+  });
+
+  test("base autenticada vazia não cria seed nem grava posição", async () => {
+    mockSincronizacao.fetchPositionsFromDb.mockResolvedValue([]);
+    const { container, root } = montar([]);
+    await repousar();
+    expect(container.textContent).toContain("Nenhuma posição em aberto.");
+    expect(container.querySelectorAll(".data-table tbody .open-actions")).toHaveLength(0);
+    expect(mockSincronizacao.savePositionsToDb).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
 

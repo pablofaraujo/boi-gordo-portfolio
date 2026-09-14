@@ -94,6 +94,11 @@ Não limpe os dados do navegador enquanto houver edições não confirmadas. A c
 pendente pertence àquele navegador; depois da confirmação na base, a posição
 pode ser consultada em outro aparelho autenticado.
 
+Sem login, sem cache da conta ou com base vazia, a tela não mostra posições de
+exemplo. As posições históricas que antes estavam embutidas no código foram
+removidas do fallback visual, não do Supabase. Uma falha de leitura pode mostrar
+somente a cópia identificada da conta, com aviso de conferência e edição bloqueada.
+
 Testes unitários adicionais cobrem falha parcial, confirmação atrasada, erro de
 rede, chave repetida, preservação dos custos e base vazia. O workflow executa testes,
 build e navegadores antes do deploy. Pull requests apenas validam, sem publicar.
