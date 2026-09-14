@@ -10,8 +10,14 @@ const LOTE = 330;
 export const db = createClient(SUPA_URL, SUPA_KEY);
 
 export async function hasSession() {
-const { data } = await db.auth.getSession();
-return !!data.session;
+return Boolean(await getSessionUserId());
+}
+
+export async function getSessionUserId() {
+const { data, error } = await db.auth.getSession();
+if (error) throw new Error("Não foi possível validar a sessão da base.");
+const userId = data?.session?.user?.id;
+return typeof userId === "string" && userId ? userId : null;
 }
 
 function toNumber(value) {

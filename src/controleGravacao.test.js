@@ -89,4 +89,16 @@ describe("fila serial e confirmação das posições", () => {
     expect(gravar).toHaveBeenCalledTimes(1);
     expect(fila.temPendencias()).toBe(true);
   });
+
+  test("descarte confirmado limpa marca de recuperação e não envia snapshot remoto", async () => {
+    const gravar = jest.fn(async (posicoes) => confirmar(posicoes));
+    const fila = criarControleGravacao({ gravar, assinatura });
+    fila.carregar(abertas);
+    fila.forcarPendencias(["a"]);
+    expect(fila.temPendencias()).toBe(true);
+    fila.carregar(abertas, { descartarEdicao: true });
+    expect(fila.temPendencias()).toBe(false);
+    await fila.salvar();
+    expect(gravar).not.toHaveBeenCalled();
+  });
 });

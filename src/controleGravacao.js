@@ -18,13 +18,14 @@ export function mesclarIdentidadeConfirmada(posicoes, registros) {
   });
 }
 
-export function criarControleGravacao({ gravar, assinatura, aoConfirmar = () => {} }) {
+export function criarControleGravacao({ gravar, assinatura, aoConfirmar = () => {}, aoConfirmarEnvio = () => {} }) {
   let atuais = [];
   let confirmadas = new Map();
   let emCurso = null;
   let carregado = false;
+  const forcadas = new Set();
   const alteradas = () => atuais.filter((posicao) =>
-    !confirmadas.has(posicao.id) || assinatura(posicao) !== assinatura(confirmadas.get(posicao.id)));
+    forcadas.has(posicao.id) || !confirmadas.has(posicao.id) || assinatura(posicao) !== assinatura(confirmadas.get(posicao.id)));
 
   const controle = {
     carregar(posicoes, { descartarEdicao = false } = {}) {
@@ -33,11 +34,15 @@ export function criarControleGravacao({ gravar, assinatura, aoConfirmar = () => 
       }
       atuais = posicoes;
       confirmadas = new Map(posicoes.map((posicao) => [posicao.id, posicao]));
+      forcadas.clear();
       carregado = true;
     },
     atualizar(posicoes) {
       if (!carregado) throw new Error("Aguarde a leitura da base antes de editar.");
       atuais = posicoes;
+    },
+    forcarPendencias(ids) {
+      (ids || []).forEach((id) => forcadas.add(id));
     },
     posicoes: () => atuais,
     temPendencias: () => Boolean(emCurso || alteradas().length),
@@ -54,7 +59,9 @@ export function criarControleGravacao({ gravar, assinatura, aoConfirmar = () => 
           if (!resultado?.ok || confirmacao.some((posicao, i) => posicao === enviadas[i])) {
             throw new Error("A base não confirmou todas as alterações. A edição foi preservada.");
           }
+          aoConfirmarEnvio(enviadas, confirmacao, resultado);
           confirmacao.forEach((posicao) => confirmadas.set(posicao.id, posicao));
+          enviadas.forEach((posicao) => forcadas.delete(posicao.id));
           atuais = mesclarIdentidadeConfirmada(atuais, resultado.registros);
           aoConfirmar(atuais);
         }

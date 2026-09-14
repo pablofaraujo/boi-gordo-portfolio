@@ -49,7 +49,7 @@ jobs:
       - name: Preparar navegadores
         run: npx playwright install --with-deps chromium webkit
 
-      - name: Testar encerramento e recarga sem banco real
+      - name: Testar cadastro, recuperação e encerramento sem banco real
         run: npm run test:navegador
 
       - name: Upload artifact

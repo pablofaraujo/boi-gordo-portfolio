@@ -58,6 +58,42 @@ O cliente real do Supabase conversa somente com um simulador PostgREST em memór
 todas as requisições externas são interceptadas. Não utilizam credenciais reais,
 não gravam dados de teste no Supabase e não alteram posições reais.
 
+## Cadastro novo e recuperação de pendências
+
+**Gravar** inicia o envio imediatamente e só limpa o formulário depois de receber
+confirmação da posição e do rateio. Durante o envio, o cadastro não aceita um
+segundo clique. Sem sessão ou leitura inicial da base, a gravação permanece
+bloqueada. Uma tentativa não confirmada conserva a mesma identidade para não
+criar outra posição ao repetir.
+
+Antes de enviar, cada edição recebe uma cópia durável no navegador, separada do
+cache de consulta e identificada por usuário, posição, aba e versão. Falha ao
+guardar essa cópia bloqueia a edição/envio e informa o problema. O mecanismo não
+armazena credenciais. A base continua sendo a fonte dos negócios confirmados;
+o armazenamento local guarda apenas a intenção ainda não confirmada.
+
+Ao reabrir, pendências da conta autenticada são oferecidas para revisão. A
+abertura e a recuperação **não enviam essas edições automaticamente**: é preciso
+conferir e usar **Salvar edições recuperadas**. O registro conserva a identidade
+e a versão original usada na comparação de concorrência. Uma posição que mudou
+na base não é substituída silenciosamente. Se a resposta foi perdida depois da
+gravação, a repetição usa a mesma chave; a presença da posição isolada não dispensa
+a confirmação do rateio.
+
+Somente a versão efetivamente confirmada tem sua pendência removida. Edições
+posteriores e de outras abas não são apagadas por respostas atrasadas. O cache
+legado não é enviado para a base automaticamente. A correção não recria negócios
+perdidos antes de sua instalação e não apaga nem corrige posições históricas.
+
+Regressões adicionais cobrem cadastro novo, reabertura durante envio, falha antes
+e depois de inserir, falha do rateio, repetição sem duplicidade, ausência/troca de
+sessão, armazenamento indisponível e preservação das pendências. O build real
+percorre Chromium e WebKit com perfil iPhone, usando somente dados fictícios.
+
+Não limpe os dados do navegador enquanto houver edições não confirmadas. A cópia
+pendente pertence àquele navegador; depois da confirmação na base, a posição
+pode ser consultada em outro aparelho autenticado.
+
 Testes unitários adicionais cobrem falha parcial, confirmação atrasada, erro de
 rede, chave repetida, preservação dos custos e base vazia. O workflow executa testes,
 build e navegadores antes do deploy. Pull requests apenas validam, sem publicar.

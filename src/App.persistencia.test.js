@@ -10,7 +10,7 @@ var mockSincronizacao;
 jest.mock("./supabaseSync", () => {
   mockSincronizacao = {
   appToRow: (p) => ({ termo: `bgp:${p.id}`, contrato: p.contrato, direcao: p.lado === "Comprado" ? "comprado" : "vendido", contratos_qtd: Number(p.contratos), preco_entrada: Number(p.entrada), preco_saida: p.saida === "" ? null : Number(p.saida), status: p.saida === "" ? "aberta" : "encerrada" }),
-  hasSession: jest.fn(),
+  getSessionUserId: jest.fn(),
   fetchPositionsFromDb: jest.fn(),
   fetchHedgeExposureFromDb: jest.fn(),
   fetchLatestQuotesFromDb: jest.fn(),
@@ -74,7 +74,7 @@ describe("persistência de posições BGI durante fechamento e recarga", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     window.localStorage.clear();
-    mockSincronizacao.hasSession.mockResolvedValue(true);
+    mockSincronizacao.getSessionUserId.mockResolvedValue("usuario-teste");
     mockSincronizacao.fetchPositionsFromDb.mockResolvedValue(POSICOES_ABERTAS);
     mockSincronizacao.fetchHedgeExposureFromDb.mockResolvedValue({ necessarios: 0, abertos: 0 });
     mockSincronizacao.fetchLatestQuotesFromDb.mockResolvedValue({ prices: {}, updatedAt: "", source: "fixture" });
@@ -231,6 +231,73 @@ describe("persistência de posições BGI durante fechamento e recarga", () => {
     await repousar();
     expect(mockSincronizacao.fetchPositionsFromDb).toHaveBeenCalledTimes(leiturasAntes);
     expect(container.querySelector('.edit-table input[type="number"]')?.value).toBe("399");
+    act(() => root.unmount());
+  });
+
+  test("Gravar nova posição aguarda confirmação e só então limpa o formulário", async () => {
+    const { container, root } = montar();
+    await repousar();
+    alterarValor(container.querySelector('input[placeholder="Entrada"]'), "360");
+    act(() => [...container.querySelectorAll("button")].find((b) => b.textContent === "Gravar").click());
+    await repousar();
+    expect(mockSincronizacao.savePositionsToDb).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('input[placeholder="Entrada"]').value).toBe("");
+    expect(container.textContent).toContain("Alterações confirmadas");
+    expect([...Array(localStorage.length)].map((_, i) => localStorage.key(i)).some((key) => key.startsWith("bgi-portfolio-pendencias-v1:"))).toBe(false);
+    act(() => root.unmount());
+  });
+
+  test("falha no cadastro conserva formulário e jornal após remontar sem replay", async () => {
+    mockSincronizacao.savePositionsToDb.mockRejectedValue(new Error("falha sintética"));
+    const primeira = montar();
+    await repousar();
+    alterarValor(primeira.container.querySelector('input[placeholder="Entrada"]'), "360");
+    act(() => [...primeira.container.querySelectorAll("button")].find((b) => b.textContent === "Gravar").click());
+    await repousar();
+    expect(primeira.container.querySelector('input[placeholder="Entrada"]').value).toBe("360");
+    expect([...Array(localStorage.length)].map((_, i) => localStorage.key(i)).some((key) => key.startsWith("bgi-portfolio-pendencias-v1:"))).toBe(true);
+    act(() => primeira.root.unmount());
+
+    mockSincronizacao.savePositionsToDb.mockClear();
+    const segunda = montar();
+    await repousar();
+    expect(segunda.container.textContent).toContain("edição(ões) não confirmada(s)");
+    expect(mockSincronizacao.savePositionsToDb).not.toHaveBeenCalled();
+    act(() => [...segunda.container.querySelectorAll("button")].find((b) => b.textContent === "Revisar edições recuperadas").click());
+    await repousar();
+    expect(segunda.container.textContent).toContain("Salvar edições recuperadas");
+    expect(mockSincronizacao.savePositionsToDb).not.toHaveBeenCalled();
+    act(() => segunda.root.unmount());
+  });
+
+  test("sem sessão o cadastro fica bloqueado e não apaga o formulário", async () => {
+    mockSincronizacao.getSessionUserId.mockResolvedValue(null);
+    const { container, root } = montar();
+    await repousar();
+    const entrada = container.querySelector('input[placeholder="Entrada"]');
+    alterarValor(entrada, "360");
+    const gravar = [...container.querySelectorAll("button")].find((b) => b.textContent === "Gravar");
+    expect(gravar.disabled).toBe(true);
+    expect(entrada.value).toBe("360");
+    expect(mockSincronizacao.savePositionsToDb).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  test("armazenamento bloqueado não derruba a tela nem permite falsa gravação", async () => {
+    jest.spyOn(window, "localStorage", "get").mockImplementation(() => { throw new DOMException("bloqueado", "SecurityError"); });
+    const { container, root } = montar();
+    await repousar();
+    expect(container.textContent).toContain("Portfólio B3");
+    alterarValor(container.querySelector('input[placeholder="Entrada"]'), "360");
+    act(() => [...container.querySelectorAll("button")].find((b) => b.textContent === "Gravar").click());
+    await repousar();
+    expect(mockSincronizacao.savePositionsToDb).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("cópia de segurança das edições não está disponível");
+    const salvar = [...container.querySelectorAll("button")].find((b) => b.textContent === "Salvar alterações");
+    act(() => salvar.click());
+    await repousar();
+    expect(mockSincronizacao.savePositionsToDb).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain("Alterações confirmadas");
     act(() => root.unmount());
   });
 });

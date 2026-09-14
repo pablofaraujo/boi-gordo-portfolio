@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { appToRow, hasSession, fetchPositionsFromDb, fetchHedgeExposureFromDb, fetchLatestQuotesFromDb, savePositionsToDb, saveQuotesToDb, deletePositionFromDb } from "./supabaseSync";
+import { appToRow, getSessionUserId, fetchPositionsFromDb, fetchHedgeExposureFromDb, fetchLatestQuotesFromDb, savePositionsToDb, saveQuotesToDb, deletePositionFromDb } from "./supabaseSync";
 import { criarControleGravacao } from "./controleGravacao";
+import { criarJornalPendencias, prepararRecuperacao } from "./jornalPendencias";
 import { ordenarPosicoesPorVencimento } from "./ordenacaoPosicoes";
 import { calcularResumoCobertura, calcularResumoExibicao } from "./resumoCobertura";
 import { cotacaoEncerrada, montarCalendarioCotacoes, precoCotacaoCalendario } from "./calendarioCotacoes";
@@ -290,9 +291,10 @@ function parsePortfolioImport(text) {
   return imported;
 }
 
-function loadStoredPositions() {
+function loadStoredPositions(userId) {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!userId) return DEFAULT_POSITIONS;
+    const raw = window.localStorage.getItem(`${STORAGE_KEY}:${encodeURIComponent(userId)}`);
     if (!raw) return DEFAULT_POSITIONS;
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) && parsed.length ? parsed.map(normalizePosition) : DEFAULT_POSITIONS;
@@ -368,8 +370,12 @@ async function saveDbPositions(positionsToSave) {
   return savePositionsToDb(positionsToSave.map(normalizePosition));
 }
 
+function assinaturaPosicao(posicao) {
+  return JSON.stringify(appToRow(normalizePosition(posicao)));
+}
+
 export default function Dashboard() {
-  const [positions, setPositions] = useState(loadStoredPositions);
+  const [positions, setPositions] = useState(() => DEFAULT_POSITIONS);
   const [draft, setDraft] = useState(emptyDraft);
   const [importText, setImportText] = useState("");
   const [importMessage, setImportMessage] = useState("");
@@ -384,13 +390,65 @@ export default function Dashboard() {
   const saveTimerRef = useRef(null);
   const recargaEmCursoRef = useRef(false);
   const positionsRef = useRef(positions);
+  const remoteConfirmedRef = useRef([]);
   const controleGravacaoRef = useRef(null);
   const [saveLoading, setSaveLoading] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [savingNew, setSavingNew] = useState(false);
+  const savingNewRef = useRef(false);
+  const userIdRef = useRef(null);
+  const journalHealthyRef = useRef(true);
+  const ownedEntriesRef = useRef(new Map());
+  const recoveredEntriesRef = useRef([]);
+  const suppressAutosaveRef = useRef(false);
+  const pendingNewIdRef = useRef(null);
+  const [recoveryEntries, setRecoveryEntries] = useState([]);
+  const [recoveryApplied, setRecoveryApplied] = useState(false);
+  const journalRef = useRef(null);
+  if (!journalRef.current) {
+    try {
+      journalRef.current = criarJornalPendencias({
+        storage: window.localStorage,
+        sessionStorage: window.sessionStorage,
+        gerarId: () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      });
+    } catch {
+      journalHealthyRef.current = false;
+      const indisponivel = () => { throw new Error("O armazenamento seguro de edições está indisponível. Edições foram bloqueadas."); };
+      journalRef.current = { registrar: indisponivel, listar: indisponivel, confirmarExatas: indisponivel };
+    }
+  }
   if (!controleGravacaoRef.current) {
     controleGravacaoRef.current = criarControleGravacao({
-      gravar: saveDbPositions,
-      assinatura: (posicao) => JSON.stringify(appToRow(normalizePosition(posicao))),
+      gravar: async (posicoes) => {
+        const owner = userIdRef.current;
+        if (!owner || await getSessionUserId() !== owner) throw new Error("A sessão mudou. A edição continua guardada para conferência.");
+        const candidatas = [...ownedEntriesRef.current.values(), ...recoveredEntriesRef.current];
+        const confirmacoesJornal = candidatas.filter((entrada) => posicoes.some((posicao) =>
+          String(posicao.id) === entrada.positionId && assinaturaPosicao(posicao) === entrada.assinatura));
+        const resultado = await saveDbPositions(posicoes);
+        return { ...resultado, confirmacoesJornal };
+      },
+      assinatura: assinaturaPosicao,
+      aoConfirmarEnvio: (_enviadas, _confirmacao, resultado) => {
+        const owner = userIdRef.current;
+        if (!owner) return;
+        journalRef.current.confirmarExatas({ userId: owner, confirmadas: resultado?.confirmacoesJornal || [] });
+        (resultado?.confirmacoesJornal || []).forEach((entrada) => {
+          const atual = ownedEntriesRef.current.get(entrada.positionId);
+          if (atual?.versionId === entrada.versionId) ownedEntriesRef.current.delete(entrada.positionId);
+        });
+        recoveredEntriesRef.current = recoveredEntriesRef.current.filter((entrada) =>
+          !(resultado?.confirmacoesJornal || []).some((confirmada) => confirmada.versionId === entrada.versionId));
+        setRecoveryEntries(journalRef.current.listar(owner));
+        const ids = new Set(_confirmacao.map((posicao) => String(posicao.id)));
+        const termos = new Set(_confirmacao.map((posicao) => posicao.termoPersistido || `bgp:${posicao.id}`));
+        remoteConfirmedRef.current = [
+          ...remoteConfirmedRef.current.filter((posicao) => !ids.has(String(posicao.id))
+            && !termos.has(posicao.termoPersistido || `bgp:${posicao.id}`)),
+          ..._confirmacao,
+        ];
+      },
       aoConfirmar: (atuais) => {
         positionsRef.current = atuais;
         setPositions(atuais);
@@ -402,13 +460,32 @@ export default function Dashboard() {
   function alterarPosicoes(alterar) {
     if (!hydratedRef.current || !dbConnected || syncLoading || recargaEmCursoRef.current) {
       setSaveError("Aguarde a leitura da base e confirme o login antes de editar.");
-      return;
+      return false;
     }
     const atuais = alterar(positionsRef.current);
+    try {
+      if (!journalHealthyRef.current || !userIdRef.current) throw new Error("A cópia de segurança das edições não está disponível.");
+      const anteriores = new Map(positionsRef.current.map((posicao) => [String(posicao.id), posicao]));
+      atuais.forEach((posicao) => {
+        const anterior = anteriores.get(String(posicao.id));
+        if (anterior && assinaturaPosicao(anterior) === assinaturaPosicao(posicao)) return;
+        const entrada = journalRef.current.registrar({
+          userId: userIdRef.current,
+          posicao,
+          assinatura: assinaturaPosicao(posicao),
+          baseline: anterior?.registroOriginal || null,
+        });
+        ownedEntriesRef.current.set(String(posicao.id), entrada);
+      });
+    } catch (err) {
+      setSaveError(err?.message || "Não foi possível guardar a edição. Nada foi alterado.");
+      return false;
+    }
     controleGravacaoRef.current.atualizar(atuais);
     positionsRef.current = atuais;
     setPositions(atuais);
     setSaveError("");
+    return true;
   }
 
   async function salvarAlteracoes() {
@@ -417,12 +494,28 @@ export default function Dashboard() {
       setSaveError("A alteração ainda não foi salva na base. Confirme o login antes de continuar.");
       return false;
     }
+    if (!controleGravacaoRef.current.temPendencias()) {
+      if (saveError) {
+        setSaveError(`${saveError} Nada foi enviado à base.`);
+        return false;
+      }
+      setSyncStatus("Nenhuma alteração pendente para salvar.");
+      return true;
+    }
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     setSaveLoading(true);
     setSaveError("");
     setSyncStatus("Salvando alterações na base Confinex...");
     try {
       await controleGravacaoRef.current.salvar();
+      if (pendingNewIdRef.current && !ownedEntriesRef.current.has(pendingNewIdRef.current)) {
+        pendingNewIdRef.current = null;
+        setDraft(emptyDraft);
+      }
+      if (suppressAutosaveRef.current) {
+        suppressAutosaveRef.current = false;
+        setRecoveryApplied(false);
+      }
       setSyncStatus(`Alterações confirmadas na base Confinex em ${fmtDateTime(new Date().toISOString())}`);
       return true;
     } catch (err) {
@@ -436,8 +529,12 @@ export default function Dashboard() {
 
   useEffect(() => {
     // Cópia de conferência, nunca fonte para substituir automaticamente a base.
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(positions)); } catch { /* base permanece canônica */ }
-    if (!hydratedRef.current || !dbConnected || saveError || recargaEmCursoRef.current) return;
+    try {
+      if (userIdRef.current && hydratedRef.current) {
+        window.localStorage.setItem(`${STORAGE_KEY}:${encodeURIComponent(userIdRef.current)}`, JSON.stringify(positions));
+      }
+    } catch { /* base permanece canônica; a cópia de segurança acusa falhas antes de editar */ }
+    if (!hydratedRef.current || !dbConnected || saveError || recargaEmCursoRef.current || suppressAutosaveRef.current) return;
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     if (controleGravacaoRef.current.temPendencias()) {
       saveTimerRef.current = window.setTimeout(salvarAlteracoes, 900);
@@ -461,12 +558,18 @@ export default function Dashboard() {
   useEffect(() => {
     let cancelled = false;
     async function hydrateFromDb() {
-      const logged = await hasSession();
+      let userId;
+      try { userId = await getSessionUserId(); }
+      catch (err) {
+        if (!cancelled) setSyncStatus(err?.message || "Não foi possível validar a sessão da base.");
+        return;
+      }
       if (cancelled) return;
-      if (!logged) {
+      if (!userId) {
         setSyncStatus("Sem login na base. Abra o Painel, faça login e recarregue esta página.");
         return;
       }
+      userIdRef.current = userId;
       setSyncLoading(true);
       try {
         try {
@@ -488,16 +591,31 @@ export default function Dashboard() {
         }
         const remotePositions = await fetchDbPositions();
         if (cancelled) return;
+        if (await getSessionUserId() !== userId) throw new Error("A sessão mudou durante a leitura. Recarregue para consultar a conta atual.");
         controleGravacaoRef.current.carregar(remotePositions);
         positionsRef.current = remotePositions;
         setPositions(remotePositions);
+        remoteConfirmedRef.current = remotePositions;
+        try {
+          const guardadas = journalRef.current.listar(userId);
+          setRecoveryEntries(guardadas);
+          journalHealthyRef.current = true;
+        } catch (err) {
+          journalHealthyRef.current = false;
+          setSaveError(err?.message || "A cópia de segurança das edições não pôde ser consultada. Edições estão bloqueadas por segurança.");
+        }
         hydratedRef.current = true;
         setDbConnected(true);
         setSyncStatus(remotePositions.length
           ? `Carregado da base Confinex em ${fmtDateTime(new Date().toISOString())}`
           : "Base consultada: nenhuma posição registrada. Nada foi gravado.");
       } catch (err) {
-        if (!cancelled) setSyncStatus(`Não consegui consultar a base agora (${err?.message || "erro"}). Usando a cópia deste aparelho.`);
+        if (!cancelled) {
+          const localDoUsuario = loadStoredPositions(userId);
+          positionsRef.current = localDoUsuario;
+          setPositions(localDoUsuario);
+          setSyncStatus(`Não consegui consultar a base agora (${err?.message || "erro"}). Exibindo a cópia deste usuário somente para conferência.`);
+        }
       } finally {
         if (!cancelled) setSyncLoading(false);
       }
@@ -505,6 +623,7 @@ export default function Dashboard() {
     hydrateFromDb();
     return () => {
       cancelled = true;
+      userIdRef.current = null;
     };
   }, []);
 
@@ -543,10 +662,14 @@ export default function Dashboard() {
         fetchDbPositions(),
         fetchHedgeExposureFromDb(),
       ]);
+      if (!userIdRef.current || await getSessionUserId() !== userIdRef.current) {
+        throw new Error("A sessão mudou durante a leitura. Recarregue para consultar a conta atual.");
+      }
       setHedgeExposure(remoteExposure);
       controleGravacaoRef.current.carregar(remotePositions, { descartarEdicao });
       positionsRef.current = remotePositions;
       setPositions(remotePositions);
+      remoteConfirmedRef.current = remotePositions;
       setSaveError("");
       setSyncStatus(`Posições recarregadas da base em ${fmtDateTime(new Date().toISOString())}`);
     } catch (err) {
@@ -645,6 +768,7 @@ export default function Dashboard() {
   const enriched = positions.map((position) => ({ ...normalizePosition(position), ...resultForPosition(position, prices) }));
   const openPositions = ordenarPosicoesPorVencimento(enriched.filter((position) => !isClosed(position)));
   const closedPositions = enriched.filter(isClosed);
+  const recoveryHasConflicts = new Set(recoveryEntries.map((item) => item.positionId)).size < recoveryEntries.length;
   const [editingClosedIds, setEditingClosedIds] = useState([]);
   const [editingOpenIds, setEditingOpenIds] = useState([]);
   const editingClosedIdSet = useMemo(() => new Set(editingClosedIds), [editingClosedIds]);
@@ -665,13 +789,78 @@ export default function Dashboard() {
     setDraft((current) => ({ ...current, [field]: value, ...(field === "contrato" ? { mes: mesLabelDoContrato(value) } : {}) }));
   }
 
-  function addPosition() {
+  function recuperarEntradas(entradas) {
+    if (!dbConnected || !hydratedRef.current || controleGravacaoRef.current.temPendencias()) return;
+    const recuperacao = prepararRecuperacao(positionsRef.current, entradas);
+    if (recuperacao.conflitos) {
+      setSaveError("Há versões de mais de uma aba para a mesma posição. Escolha uma edição para revisar.");
+      return;
+    }
+    recoveredEntriesRef.current = recuperacao.aplicadas;
+    suppressAutosaveRef.current = true;
+    controleGravacaoRef.current.atualizar(recuperacao.posicoes);
+    controleGravacaoRef.current.forcarPendencias(recuperacao.aplicadas.map((item) => item.positionId));
+    positionsRef.current = recuperacao.posicoes;
+    setPositions(recuperacao.posicoes);
+    setRecoveryApplied(true);
+    setSaveError("");
+  }
+
+  async function salvarRecuperadas() {
+    if (await salvarAlteracoes()) {
+      suppressAutosaveRef.current = false;
+      setRecoveryApplied(false);
+      setSyncStatus("Edições recuperadas e confirmadas na base Confinex.");
+    }
+  }
+
+  function cancelarRecuperacao() {
+    controleGravacaoRef.current.carregar(remoteConfirmedRef.current, { descartarEdicao: true });
+    positionsRef.current = remoteConfirmedRef.current;
+    setPositions(remoteConfirmedRef.current);
+    recoveredEntriesRef.current = [];
+    suppressAutosaveRef.current = false;
+    setRecoveryApplied(false);
+    setSaveError("");
+  }
+
+  async function addPosition() {
+    if (savingNewRef.current) return;
+    if (recoveryApplied) {
+      setSaveError("Conclua ou salve a revisão recuperada antes de gravar uma nova posição.");
+      return;
+    }
     if (!draft.contrato || !toNumber(draft.contratos) || !toNumber(draft.entrada)) return;
-    alterarPosicoes((current) => [...current, { ...draft, id: `${Date.now()}` }]);
-    setDraft(emptyDraft);
+    if (!hydratedRef.current || !dbConnected || syncLoading) {
+      setSaveError("A nova posição não foi gravada. Confirme o login e aguarde a leitura da base.");
+      return;
+    }
+    savingNewRef.current = true;
+    setSavingNew(true);
+    const id = pendingNewIdRef.current || `${Date.now()}-${globalThis.crypto?.randomUUID?.() || Math.random().toString(16).slice(2)}`;
+    pendingNewIdRef.current = id;
+    const nova = { ...draft, id };
+    try {
+      const aplicada = alterarPosicoes((current) => {
+        const existente = current.some((item) => item.id === id);
+        return existente ? current.map((item) => item.id === id ? nova : item) : [...current, nova];
+      });
+      if (!aplicada) return;
+      if (await salvarAlteracoes()) {
+        pendingNewIdRef.current = null;
+        setDraft(emptyDraft);
+      }
+    } finally {
+      savingNewRef.current = false;
+      setSavingNew(false);
+    }
   }
 
   function importOpenPositions() {
+    if (recoveryApplied) {
+      setImportMessage("Conclua ou salve a revisão recuperada antes de importar posições.");
+      return;
+    }
     const imported = parsePortfolioImport(importText);
     if (!imported.length) {
       setImportMessage("Nenhuma posição aberta encontrada no texto colado.");
@@ -704,6 +893,10 @@ export default function Dashboard() {
 
   function editOpenPosition(id) {
     if (!dbConnected || syncLoading) return;
+    if (pendingNewIdRef.current === id) {
+      setSaveError("Conclua o cadastro pelo formulário Nova posição antes de editar esta linha.");
+      return;
+    }
     setEditingOpenIds((current) => (current.includes(id) ? current : [...current, id]));
   }
 
@@ -894,13 +1087,53 @@ export default function Dashboard() {
           </button>
         </div>
 
+        {recoveryEntries.length > 0 && !recoveryApplied && (
+          <div role="status" style={{ border: "1px solid #fbbf24", background: "#fffbeb", borderRadius: 8, padding: 12, marginBottom: 16 }}>
+            <div>Há {recoveryEntries.length} edição(ões) não confirmada(s) guardada(s) neste navegador.</div>
+            {!recoveryHasConflicts ? (
+              <button onClick={() => recuperarEntradas(recoveryEntries)} disabled={syncLoading || saveLoading} style={{ marginTop: 8, padding: "7px 9px", cursor: "pointer" }}>
+                Revisar edições recuperadas
+              </button>
+            ) : (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 12, color: "#92400e" }}>Existem versões de abas diferentes. Escolha uma por vez; as demais continuarão guardadas.</div>
+                {recoveryEntries.map((entrada) => (
+                  <div key={entrada.versionId} style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #fde68a" }}>
+                    <div style={{ fontSize: 12 }}>
+                      {entrada.posicao.contrato} · {fmtQuantity(entrada.posicao.contratos)} cts · {fmtCurrency(entrada.posicao.entrada)} · {entrada.posicao.status} · edição de {fmtDateTime(entrada.atualizadoEm)}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#78350f", marginTop: 3 }}>
+                      Negócio/rateio: {entrada.posicao.negocio || "—"} · Detalhes: {entrada.posicao.detalhes || "—"}
+                    </div>
+                    <button onClick={() => recuperarEntradas([entrada])} disabled={syncLoading || saveLoading} style={{ marginTop: 5, padding: "6px 8px", cursor: "pointer" }}>
+                      Recuperar esta edição
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {recoveryApplied && (
+          <div role="status" style={{ border: "1px solid #93c5fd", background: "#eff6ff", borderRadius: 8, padding: 12, marginBottom: 16 }}>
+            <div>A edição recuperada está somente para conferência. Revise os valores antes de enviar.</div>
+            <button onClick={salvarRecuperadas} disabled={saveLoading || syncLoading || !dbConnected} style={{ marginTop: 8, padding: "7px 9px", cursor: "pointer" }}>
+              {saveLoading ? "Salvando..." : "Salvar edições recuperadas"}
+            </button>
+            <button onClick={cancelarRecuperacao} disabled={saveLoading || syncLoading} style={{ marginTop: 8, marginLeft: 8, padding: "7px 9px", cursor: "pointer" }}>
+              Cancelar revisão e manter nas edições guardadas
+            </button>
+          </div>
+        )}
+
         {(saveError || saveLoading || controleGravacaoRef.current.temPendencias()) && (
           <div role={saveError ? "alert" : "status"} style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: 12, marginBottom: 16 }}>
             <div>{saveError || (saveLoading ? "Aguarde a confirmação do salvamento antes de sair." : "Há alterações aguardando confirmação na base.")}</div>
-            <button onClick={salvarAlteracoes} disabled={saveLoading || !dbConnected || syncLoading} style={{ marginTop: 8, padding: "7px 9px", cursor: "pointer" }}>
+            {!recoveryApplied && <button onClick={salvarAlteracoes} disabled={saveLoading || !dbConnected || syncLoading} style={{ marginTop: 8, padding: "7px 9px", cursor: "pointer" }}>
               {saveLoading ? "Salvando..." : "Salvar alterações"}
-            </button>
-            {saveError && <button onClick={() => recarregarPosicoesDaBase(true)} disabled={saveLoading || syncLoading || !dbConnected} style={{ marginTop: 8, marginLeft: 8, padding: "7px 9px", cursor: "pointer" }}>
+            </button>}
+            {saveError && !recoveryApplied && <button onClick={() => recarregarPosicoesDaBase(true)} disabled={saveLoading || syncLoading || !dbConnected} style={{ marginTop: 8, marginLeft: 8, padding: "7px 9px", cursor: "pointer" }}>
               Rever versão da base sem aplicar esta edição
             </button>}
           </div>
@@ -1188,6 +1421,7 @@ export default function Dashboard() {
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Nova posição</h2>
           <div style={{ fontSize: 12, color: "#64748b", margin: "-4px 0 10px" }}>A referência sequencial B3-AA-NNN será criada automaticamente ao salvar e poderá ser citada nas conversas com a mesa.</div>
           <div className="new-position-grid">
+            <fieldset disabled={savingNew} style={{ border: 0, padding: 0, margin: 0, display: "contents" }}>
             <select value={parseContrato(draft.contrato).codigo} onChange={(event) => updateDraft("contrato", buildContrato(event.target.value, parseContrato(draft.contrato).ano))} style={inputStyle} title="Mês de vencimento">
               {MES_CODIGOS.map((m) => <option key={m.code} value={m.code}>{m.label} ({m.code})</option>)}
             </select>
@@ -1205,7 +1439,8 @@ export default function Dashboard() {
             <select value={draft.status} onChange={(event) => updateDraft("status", event.target.value)} style={inputStyle}><option>Aberta</option><option>Fechada</option></select>
             <textarea value={draft.negocio} onChange={(event) => updateDraft("negocio", event.target.value)} style={notesStyle} placeholder="Negócio / rateio. Ex.: CF-26-009: 3 contratos; CF-26-010: 2 contratos" />
             <textarea value={draft.detalhes} onChange={(event) => updateDraft("detalhes", event.target.value)} style={{ ...notesStyle, gridColumn: "1 / -1" }} placeholder="Detalhes da operação" />
-            <button onClick={addPosition} style={{ border: 0, background: "#2563eb", color: "#fff", borderRadius: 6, padding: "8px 10px", cursor: "pointer", gridColumn: "1 / -1", justifySelf: "end", minWidth: 128 }}>Gravar</button>
+            <button onClick={addPosition} disabled={savingNew || syncLoading || !dbConnected} style={{ border: 0, background: savingNew ? "#94a3b8" : "#2563eb", color: "#fff", borderRadius: 6, padding: "8px 10px", cursor: savingNew ? "wait" : "pointer", gridColumn: "1 / -1", justifySelf: "end", minWidth: 128 }}>{savingNew ? "Gravando..." : "Gravar"}</button>
+            </fieldset>
           </div>
         </section>
       </div>
